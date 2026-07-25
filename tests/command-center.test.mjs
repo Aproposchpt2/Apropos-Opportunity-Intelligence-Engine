@@ -41,7 +41,7 @@ test('migration creates seven RLS tables',async()=>{
 test('orchestrator owns sequential five-agent progression',async()=>{
   const shared=await text('supabase/functions/_shared/command.ts');
   const orchestrator=await text('supabase/functions/command-begin-daily-operations/index.ts');
-  assert.equal((shared.match(/functionName:/g)||[]).length,5);
+  assert.equal((shared.match(/functionName: 'agent-/g)||[]).length,5);
   assert.match(orchestrator,/for \(const agent of AGENT_SEQUENCE\)/);
   assert.match(orchestrator,/max_attempts/);
   assert.match(orchestrator,/idempotencyKey/);
