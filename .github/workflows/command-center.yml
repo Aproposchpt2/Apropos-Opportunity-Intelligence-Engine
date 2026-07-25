@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Validate operations center
         run: |
           test -f index.html
@@ -19,24 +20,45 @@ jobs:
           grep -q "BEGIN DAILY OPERATIONS" index.html
           grep -q "Procurement Intelligence Operations Center" index.html
           grep -q "MISSION READINESS" index.html
-          grep -q "EXECUTIVE DECISION CENTER" index.html
+          grep -q "MISSION PRE-FLIGHT" index.html
+          grep -q "MISSION LAUNCH" index.html
           grep -q "LIVE MISSION TIMELINE" index.html
+          grep -q "EXECUTIVE ALERTS" index.html
+
       - name: Validate browser JavaScript
         run: node --check assets/command-center.js
+
       - name: Run acceptance tests
         run: node --test tests/*.test.mjs
+
       - name: Validate operational schema
         run: |
           for table in command_runs command_jobs command_events command_failures command_metrics daily_executive_briefs system_status; do
             grep -q "create table if not exists public.${table}" supabase/migrations/20260723230000_command_center.sql
             grep -q "alter table public.${table} enable row level security" supabase/migrations/20260723230000_command_center.sql
           done
+
       - name: Validate five-agent orchestration
         run: |
           test "$(grep -c "functionName: 'agent-" supabase/functions/_shared/command.ts)" -eq 5
           grep -q "for (const agent of AGENT_SEQUENCE)" supabase/functions/command-begin-daily-operations/index.ts
           grep -q "max_attempts" supabase/functions/command-begin-daily-operations/index.ts
           grep -q "idempotencyKey" supabase/functions/command-begin-daily-operations/index.ts
+
+      - name: Validate WP1 contract admission artifacts
+        run: |
+          test -f supabase/migrations/20260725190000_contract_admission_v1.sql
+          test -f supabase/migrations/20260725200000_contract_admission_functions_v1.sql
+          test -f supabase/migrations/20260725210000_admitted_delivery_control_v1.sql
+          test -f netlify/functions/apios-admission-orchestrator.mjs
+          test -f netlify/functions/aoie-admitted-contracts.mjs
+          test -f netlify/functions/natcorp-admitted-delivery.mjs
+          test -f netlify/functions/analyze-fit-admitted.mjs
+          grep -q "aoie_admitted_contract_candidates_v1" netlify/functions/_shared/admission-control.mjs
+          grep -q "apios_natcorp_delivery_current_v2" netlify/functions/_shared/admission-control.mjs
+          grep -q "ADMISSION_EVALUATION" netlify/functions/_shared/admission-workflow.mjs
+          grep -q "ANALYZE_FIT" netlify/functions/_shared/admission-workflow.mjs
+
       - name: Validate browser credential boundary
         run: |
           ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/command-center.js assets/command-center.css
