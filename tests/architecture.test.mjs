@@ -6,9 +6,17 @@ const text = async path => readFile(new URL(`../${path}`, import.meta.url), 'utf
 
 test('root index is the operational dashboard', async () => {
   const html = await text('index.html');
-  assert.match(html, /BEGIN DAILY OPERATIONS/);
-  assert.match(html, /AGENT STATUS/);
-  assert.match(html, /Daily Executive Intelligence Brief/);
+  for (const label of [
+    'Procurement Intelligence Operations Center',
+    'BEGIN DAILY OPERATIONS',
+    'MISSION READINESS',
+    'MISSION PRE-FLIGHT',
+    'MISSION LAUNCH',
+    'LIVE MISSION TIMELINE',
+    'EXECUTIVE ALERTS',
+    'COMPLETED MISSIONS',
+    'AGENT STATUS'
+  ]) assert.match(html, new RegExp(label, 'i'));
 });
 
 test('dashboard invokes required command functions', async () => {
