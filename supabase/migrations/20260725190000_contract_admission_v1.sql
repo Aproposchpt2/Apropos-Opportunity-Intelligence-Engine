@@ -203,7 +203,9 @@ create or replace view public.admitted_contracts_current
 with (security_invoker=true) as
 select a.*, o.title, o.solicitation_number, o.issuing_organization,
        coalesce(o.official_source_url,o.source_url) as official_source_url,
-       o.procurement_type, o.state_code, o.county, o.city,
+       o.procurement_type, o.state_code,
+       o.place_of_performance_county as county,
+       o.place_of_performance_city as city,
        o.naics_codes, o.unspsc_codes, o.commodity_codes,
        o.requirements, o.natcorp_contract_dna_status
 from public.admitted_contracts a
