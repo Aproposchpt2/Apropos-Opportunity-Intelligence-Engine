@@ -21,7 +21,7 @@ test('root index is the operational dashboard', async () => {
 
 test('dashboard invokes required command functions', async () => {
   const js = await text('assets/command-center.js');
-  for (const name of ['command-begin-daily-operations','command-status','command-resume','command-executive-brief']) assert.match(js, new RegExp(name));
+  for (const name of ['command-begin-daily-operations','command-status','command-resume','command-stop']) assert.match(js, new RegExp(name));
 });
 
 test('migration creates seven RLS tables', async () => {
