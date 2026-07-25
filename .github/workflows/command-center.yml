@@ -36,8 +36,26 @@ jobs:
           node --check assets/command-center.js
           node --check assets/runtime-config.js
 
-      - name: Run acceptance tests
-        run: node --test tests/*.test.mjs
+      - name: Run legacy architecture tests
+        run: node --test tests/architecture.test.mjs
+
+      - name: Run Command Center tests
+        run: node --test tests/command-center.test.mjs
+
+      - name: Run WP1 schema tests
+        run: node --test tests/contract-admission.test.mjs
+
+      - name: Run WP1 function tests
+        run: node --test tests/contract-admission-functions.test.mjs
+
+      - name: Run WP1 delivery tests
+        run: node --test tests/admitted-delivery-control.test.mjs
+
+      - name: Run WP1 workflow tests
+        run: node --test tests/admission-workflow.test.mjs
+
+      - name: Run WP1 entry-point tests
+        run: node --test tests/entry-point-integration.test.mjs
 
       - name: Validate operational schema
         run: |
