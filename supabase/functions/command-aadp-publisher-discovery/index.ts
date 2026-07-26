@@ -1,4 +1,4 @@
-import { corsHeaders, db, json, parseBody, recordEvent } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody } from '../_shared/command.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -88,15 +88,14 @@ Deno.serve(async (request: Request) => {
         current_stage: 'PROJECT_OWNER_APPROVAL_OR_EXCEPTION_REVIEW',
         official_sources_identified: inserted + existing,
         publishers_presented: inserted + existing,
-        evidence: { inserted, updated: existing, action_needed: true }
+        evidence: {
+          inserted,
+          updated: existing,
+          action_needed: true,
+          resume_point: 'PUBLISHER_REGISTRY_UPDATED',
+          unrelated_publishers_may_continue: true
+        }
       })
-    });
-
-    await recordEvent(discovery.id, null, 'ACTION_NEEDED', `Publisher discovery for ${stateCode} requires approval`, {
-      state_code: stateCode,
-      publishers_presented: inserted + existing,
-      resume_point: 'PUBLISHER_REGISTRY_UPDATED',
-      unrelated_publishers_may_continue: true
     });
 
     return json({
