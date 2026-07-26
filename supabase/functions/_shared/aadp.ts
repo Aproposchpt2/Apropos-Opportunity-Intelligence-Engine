@@ -85,7 +85,7 @@ export async function runAadpTask(runId: string, task: any, assignment: any) {
   await db(`command_tasks?id=eq.${task.id}`, { method: 'PATCH', body: JSON.stringify({ state: 'RUNNING', started_at: new Date().toISOString(), output_payload: { attempt_count: attemptNumber } }) });
   await recordEvent(runId, null, 'AADP_TASK_STARTED', `${task.task_type} started`, { task_id: task.id, attempt_number: attemptNumber });
   try {
-    const result = await invoke('aadp-task-executor', { run_id: runId, task_id: task.id, task_type: task.task_type, assignment });
+    const result = await invoke('aadp-task-executor-v2', { run_id: runId, task_id: task.id, task_type: task.task_type, assignment });
     await completeTask(task.id, result.metrics ?? { processed: 1 }, result.evidence ?? result);
     await db(`command_task_attempts?task_id=eq.${task.id}&attempt_number=eq.${attemptNumber}`, { method: 'PATCH', body: JSON.stringify({ state: 'COMPLETED', completed_at: new Date().toISOString(), evidence: result.evidence ?? result }) });
     await recordMetrics(runId, null, result.metrics ?? {});
