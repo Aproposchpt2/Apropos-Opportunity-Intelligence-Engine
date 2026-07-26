@@ -13,9 +13,8 @@ export const AADP_TASK_TYPES = [
 export const AADP_V1_GRAPH = [
   'PUBLISHER_ASSIGNMENT_CREATE','ACQUISITION_RUN_START','ACQUISITION_PAGE_FETCH','ACQUISITION_RECORD_STORE',
   'ACQUISITION_RUN_CLOSE','RECORD_NORMALIZATION','RECORD_DEDUPLICATION','RECORD_QUALIFICATION',
-  'QUALIFIED_RECORD_UPSERT','REJECTION_RECORD_CREATE','RUN_RECONCILIATION','AOIE_BATCH_REVIEW',
-  'PROCUREMENT_LANGUAGE_ANALYSIS','MATCHING_RECOMMENDATION_CREATE','MATCHING_RECOMMENDATION_TEST',
-  'EXECUTIVE_REPORT_CREATE'
+  'QUALIFIED_RECORD_UPSERT','REJECTION_RECORD_CREATE','RUN_RECONCILIATION','PROCUREMENT_LANGUAGE_ANALYSIS',
+  'AOIE_BATCH_REVIEW','MATCHING_RECOMMENDATION_CREATE','MATCHING_RECOMMENDATION_TEST','EXECUTIVE_REPORT_CREATE'
 ] as const;
 
 export type AadpTaskType = typeof AADP_TASK_TYPES[number];
@@ -48,11 +47,13 @@ export function validateAssignment(input: PublisherAssignmentInput) {
 }
 
 export async function createTaskGraph(runId: string) {
+  const existing = await db(`command_tasks?run_id=eq.${runId}&select=*&order=created_at.asc`);
+  if (existing.length) return existing;
   const rows = AADP_V1_GRAPH.map((task_type, index) => ({
     run_id: runId,
     task_type,
     state: index === 0 ? 'READY' : 'BLOCKED',
-    input_payload: { graph_version: 'AADP-1.0', sequence: index + 1 }
+    input_payload: { graph_version: 'AADP-1.1', sequence: index + 1 }
   }));
   const tasks = await db('command_tasks', { method: 'POST', body: JSON.stringify(rows) });
   const dependencies = tasks.slice(1).map((task: { id: string }, index: number) => ({
@@ -81,24 +82,27 @@ export async function completeTask(taskId: string, measurableResult: Record<stri
 
 export async function runAadpTask(runId: string, task: any, assignment: any) {
   const attemptNumber = Number(task.output_payload?.attempt_count ?? 0) + 1;
+  const startedAt = new Date().toISOString();
   await db('command_task_attempts', { method: 'POST', body: JSON.stringify({ task_id: task.id, attempt_number: attemptNumber, state: 'RUNNING' }) });
-  await db(`command_tasks?id=eq.${task.id}`, { method: 'PATCH', body: JSON.stringify({ state: 'RUNNING', started_at: new Date().toISOString(), output_payload: { attempt_count: attemptNumber } }) });
-  await recordEvent(runId, null, 'AADP_TASK_STARTED', `${task.task_type} started`, { task_id: task.id, attempt_number: attemptNumber });
+  await db(`command_tasks?id=eq.${task.id}`, { method: 'PATCH', body: JSON.stringify({ state: 'RUNNING', started_at: task.started_at ?? startedAt, output_payload: { ...task.output_payload, attempt_count: attemptNumber, last_attempt_started_at: startedAt } }) });
+  await recordEvent(runId, null, 'AADP_TASK_STARTED', `${task.task_type} started`, { task_id: task.id, attempt_number: attemptNumber, resume: attemptNumber > 1 });
   try {
-    const result = await invoke('aadp-task-executor-v2', { run_id: runId, task_id: task.id, task_type: task.task_type, assignment });
-    await completeTask(task.id, result.metrics ?? { processed: 1 }, result.evidence ?? result);
+    const result = await invoke('aadp-task-executor-v2', { run_id: runId, task_id: task.id, task_type: task.task_type, assignment, attempt_number: attemptNumber });
+    await completeTask(task.id, result.metrics ?? { processed: 1 }, { ...(result.evidence ?? result), attempt_number: attemptNumber, resumed: attemptNumber > 1 });
     await db(`command_task_attempts?task_id=eq.${task.id}&attempt_number=eq.${attemptNumber}`, { method: 'PATCH', body: JSON.stringify({ state: 'COMPLETED', completed_at: new Date().toISOString(), evidence: result.evidence ?? result }) });
     await recordMetrics(runId, null, result.metrics ?? {});
-    return result;
+    if (attemptNumber > 1) await recordEvent(runId, null, 'AADP_TASK_RETRY_SUCCEEDED', `${task.task_type} succeeded on retry`, { task_id: task.id, attempt_number: attemptNumber });
+    return { ok: true, result, attemptNumber };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const maxAttempts = Number(assignment.retry_policy?.max_attempts ?? 3);
     const retry = attemptNumber < maxAttempts;
-    await db(`command_task_attempts?task_id=eq.${task.id}&attempt_number=eq.${attemptNumber}`, { method: 'PATCH', body: JSON.stringify({ state: retry ? 'RETRY_PENDING' : 'FAILED', completed_at: new Date().toISOString(), error_message: message }) });
-    await db(`command_tasks?id=eq.${task.id}`, { method: 'PATCH', body: JSON.stringify({ state: retry ? 'RETRY_PENDING' : 'ESCALATED', output_payload: { attempt_count: attemptNumber, error: message } }) });
-    await db('command_failures', { method: 'POST', body: JSON.stringify({ run_id: runId, failure_type: 'AADP_TASK_FAILURE', recoverable: retry, attempt_number: attemptNumber, error_message: message, evidence: { task_id: task.id, task_type: task.task_type } }) });
-    await recordEvent(runId, null, retry ? 'AADP_TASK_RETRY_PENDING' : 'AADP_TASK_ESCALATED', message, { task_id: task.id });
-    throw error;
+    const retryAt = retry ? new Date(Date.now() + Number(assignment.retry_policy?.backoff_seconds ?? 0) * 1000).toISOString() : null;
+    await db(`command_task_attempts?task_id=eq.${task.id}&attempt_number=eq.${attemptNumber}`, { method: 'PATCH', body: JSON.stringify({ state: retry ? 'RETRY_PENDING' : 'FAILED', completed_at: new Date().toISOString(), error_message: message, evidence: { retry_eligible: retry, retry_scheduled_for: retryAt } }) });
+    await db(`command_tasks?id=eq.${task.id}`, { method: 'PATCH', body: JSON.stringify({ state: retry ? 'RETRY_PENDING' : 'ESCALATED', scheduled_for: retryAt, output_payload: { ...task.output_payload, attempt_count: attemptNumber, error: message, retry_eligible: retry, retry_scheduled_for: retryAt } }) });
+    await db('command_failures', { method: 'POST', body: JSON.stringify({ run_id: runId, failure_type: 'AADP_TASK_FAILURE', recoverable: retry, attempt_number: attemptNumber, error_message: message, evidence: { task_id: task.id, task_type: task.task_type, retry_scheduled_for: retryAt } }) });
+    await recordEvent(runId, null, retry ? 'AADP_TASK_RETRY_PENDING' : 'AADP_TASK_ESCALATED', message, { task_id: task.id, attempt_number: attemptNumber, retry_scheduled_for: retryAt });
+    return { ok: false, retry, attemptNumber, error: message };
   }
 }
 
