@@ -28,15 +28,11 @@ test('AADP task executor exposes the complete Version 1 execution path', () => {
 });
 
 test('acquisition uses publisher assignment controls and bounded pagination', () => {
-  for (const pattern of [/assignment\.search_endpoint/, /pagination_instructions/, /max_pages/, /page_size/, /Publisher retrieval failed/, /pagination_complete/]) {
-    assert.match(executor, pattern);
-  }
+  for (const pattern of [/assignment\.search_endpoint/, /pagination_instructions/, /max_pages/, /page_size/, /Publisher retrieval failed/, /pagination_complete/]) assert.match(executor, pattern);
 });
 
 test('raw records preserve source and content identities', () => {
-  for (const pattern of [/acquisition_raw_records/, /source_record_id/, /source_fingerprint/, /content_fingerprint/, /canonicalJson/, /SHA-256/]) {
-    assert.match(executor, pattern);
-  }
+  for (const pattern of [/acquisition_raw_records/, /source_record_id/, /source_fingerprint/, /content_fingerprint/, /canonicalJson/, /SHA-256/]) assert.match(executor, pattern);
 });
 
 test('qualification remains PostgreSQL authoritative', () => {
@@ -46,21 +42,15 @@ test('qualification remains PostgreSQL authoritative', () => {
 });
 
 test('qualified records are delivered to state_contract_opportunities', () => {
-  for (const pattern of [/state_contract_opportunities/, /source_platform/, /source_record_id/, /qualified_record_id/]) {
-    assert.match(executor, pattern);
-  }
+  for (const pattern of [/state_contract_opportunities/, /source_platform/, /source_record_id/, /qualified_record_id/]) assert.match(executor, pattern);
 });
 
 test('AOIE creates controlled recommendations without changing production matching', () => {
-  for (const pattern of [/procurement_language_analysis/, /aoie_batch_reviews/, /aoie_change_recommendations/, /NO RECOMMENDATIONS AT THIS TIME/, /NEEDS YOUR ATTENTION/, /production_matching_changed:\s*false/, /production_applied:\s*false/]) {
-    assert.match(executor, pattern);
-  }
+  for (const pattern of [/procurement_language_analysis/, /aoie_batch_reviews/, /aoie_change_recommendations/, /NO RECOMMENDATIONS AT THIS TIME/, /NEEDS YOUR ATTENTION/, /production_matching_changed:\s*false/, /production_applied:\s*false/]) assert.match(executor, pattern);
 });
 
 test('manual intervention is emitted as an auditable ACTION NEEDED event', () => {
-  for (const pattern of [/'ACTION_NEEDED'/, /recommended_action/, /resume_point/, /unrelated_publishers_may_continue:\s*true/]) {
-    assert.match(executor, pattern);
-  }
+  for (const pattern of [/'ACTION_NEEDED'/, /recommended_action/, /resume_point/, /unrelated_publishers_may_continue:\s*true/]) assert.match(executor, pattern);
 });
 
 test('state publisher discovery is separate from recurring acquisition', () => {
@@ -85,10 +75,11 @@ test('migration includes state discovery and action-needed persistence', () => {
   assert.match(migration, /resume_point/);
 });
 
-test('corrected executive reporting does not self-reference unresolved Promise results', () => {
-  assert.match(executorV2, /const \[raw, dispositions, rejections, analyses, reviews, tasks, failures\] = await Promise\.all/);
+test('corrected executive reporting resolves review before recommendations and reports semantic evidence', () => {
+  assert.match(executorV2, /const \[raw, dispositions, rejections, analyses, reviews, tasks, failures, alerts\] = await Promise\.all/);
   assert.match(executorV2, /const review = reviews\?\.\[0\] \?\? null/);
   assert.match(executorV2, /const recommendations = review/);
+  assert.match(executorV2, /aoie_result:/);
   assert.doesNotMatch(executorV2, /Promise\.all\([\s\S]*batch_review_id=eq\.\$\{reviews/);
 });
 
