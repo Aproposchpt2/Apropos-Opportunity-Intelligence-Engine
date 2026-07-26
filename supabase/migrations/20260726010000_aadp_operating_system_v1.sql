@@ -42,14 +42,10 @@ create table if not exists public.command_definitions (
   updated_at timestamptz not null default now()
 );
 
-alter table public.command_runs
-  add column if not exists definition_id uuid references public.command_definitions(id);
-alter table public.command_runs
-  add column if not exists aadp_state public.aadp_run_state not null default 'CREATED';
-alter table public.command_runs
-  add column if not exists publisher_assignment_id uuid;
-alter table public.command_runs
-  add column if not exists reconciliation jsonb not null default '{}'::jsonb;
+alter table public.command_runs add column if not exists definition_id uuid references public.command_definitions(id);
+alter table public.command_runs add column if not exists aadp_state public.aadp_run_state not null default 'CREATED';
+alter table public.command_runs add column if not exists publisher_assignment_id uuid;
+alter table public.command_runs add column if not exists reconciliation jsonb not null default '{}'::jsonb;
 
 create table if not exists public.command_tasks (
   id uuid primary key default gen_random_uuid(),
@@ -74,10 +70,7 @@ create table if not exists public.command_tasks (
   completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (
-    state <> 'COMPLETED'
-    or (measurable_result <> '{}'::jsonb and execution_evidence <> '{}'::jsonb)
-  )
+  check (state <> 'COMPLETED' or (measurable_result <> '{}'::jsonb and execution_evidence <> '{}'::jsonb))
 );
 
 create table if not exists public.command_task_dependencies (
@@ -92,7 +85,7 @@ create table if not exists public.command_task_attempts (
   task_id uuid not null references public.command_tasks(id) on delete cascade,
   attempt_number integer not null check (attempt_number > 0),
   state public.aadp_task_state not null,
-  started_at timestptz not null default now(),
+  started_at timestamptz not null default now(),
   completed_at timestamptz,
   error_code text,
   error_message text,
@@ -118,8 +111,7 @@ create table if not exists public.publisher_registry (
   updated_at timestamptz not null default now()
 );
 
--- PostgreSQL table constraints cannot contain expressions. The publisher
--- identity is therefore enforced with an expression index.
+-- Expressions are enforced by an index, not an invalid table UNIQUE constraint.
 create unique index if not exists publisher_registry_name_state_unique_idx
   on public.publisher_registry (publisher_name, coalesce(state_code, ''));
 
@@ -163,10 +155,8 @@ create table if not exists public.publisher_assignments (
   updated_at timestamptz not null default now()
 );
 
-alter table public.command_runs
-  drop constraint if exists command_runs_publisher_assignment_id_fkey;
-alter table public.command_runs
-  add constraint command_runs_publisher_assignment_id_fkey
+alter table public.command_runs drop constraint if exists command_runs_publisher_assignment_id_fkey;
+alter table public.command_runs add constraint command_runs_publisher_assignment_id_fkey
   foreign key (publisher_assignment_id) references public.publisher_assignments(id);
 
 create table if not exists public.acquisition_runs (
@@ -324,10 +314,7 @@ begin
   from public.acquisition_raw_records
   where id = p_raw_record_id
   for update;
-
-  if not found then
-    raise exception 'Raw record not found';
-  end if;
+  if not found then raise exception 'Raw record not found'; end if;
 
   if upper(coalesce(p_lifecycle_status,'')) in ('CLOSED','EXPIRED','CANCELLED','WITHDRAWN','SUPERSEDED') then
     v_disposition := upper(p_lifecycle_status)::public.aadp_record_disposition;
@@ -345,9 +332,9 @@ begin
   end if;
 
   insert into public.acquisition_record_dispositions(
-    acquisition_run_id, raw_record_id, disposition, reason_code, evidence
+    acquisition_run_id,raw_record_id,disposition,reason_code,evidence
   ) values (
-    v_run, p_raw_record_id, v_disposition, v_code,
+    v_run,p_raw_record_id,v_disposition,v_code,
     jsonb_build_object('ruleset','AADP-QUALIFICATION-V1')
   )
   on conflict(acquisition_run_id,raw_record_id) do update
@@ -358,13 +345,13 @@ begin
 
   if v_code is not null then
     insert into public.acquisition_rejections(
-      acquisition_run_id, raw_record_id, rejection_code, evidence
+      acquisition_run_id,raw_record_id,rejection_code,evidence
     ) values (
-      v_run, p_raw_record_id, v_code,
+      v_run,p_raw_record_id,v_code,
       jsonb_build_object(
-        'requirements_present', nullif(btrim(coalesce(p_requirements,'')),'') is not null,
-        'contact_present', nullif(btrim(coalesce(p_contact,'')),'') is not null,
-        'responsible_entity_present', nullif(btrim(coalesce(p_responsible_entity,'')),'') is not null
+        'requirements_present',nullif(btrim(coalesce(p_requirements,'')),'') is not null,
+        'contact_present',nullif(btrim(coalesce(p_contact,'')),'') is not null,
+        'responsible_entity_present',nullif(btrim(coalesce(p_responsible_entity,'')),'') is not null
       )
     );
   end if;
@@ -373,7 +360,6 @@ begin
   set processing_status=v_disposition::text,
       processing_attempt_count=processing_attempt_count+1
   where id=p_raw_record_id;
-
   return v_disposition;
 end
 $$;
@@ -392,7 +378,6 @@ begin
   select count(*) into v_acquired
   from public.acquisition_raw_records
   where acquisition_run_id=p_acquisition_run_id;
-
   select count(*) into v_disposed
   from public.acquisition_record_dispositions
   where acquisition_run_id=p_acquisition_run_id;
@@ -403,188 +388,95 @@ begin
     'variance',v_acquired-v_disposed,
     'passed',v_acquired=v_disposed
   );
-
   if v_acquired <> v_disposed then
-    raise exception 'AADP reconciliation failed: %', v_result;
+    raise exception 'AADP reconciliation failed: %',v_result;
   end if;
-
   return v_result;
 end
 $$;
 
-revoke all on function public.aadp_qualify_raw_record(uuid,text,text,text,text)
-  from public, anon, authenticated;
-revoke all on function public.aadp_reconcile_run(uuid)
-  from public, anon, authenticated;
-grant execute on function public.aadp_qualify_raw_record(uuid,text,text,text,text)
-  to service_role;
-grant execute on function public.aadp_reconcile_run(uuid)
-  to service_role;
+revoke all on function public.aadp_qualify_raw_record(uuid,text,text,text,text) from public,anon,authenticated;
+revoke all on function public.aadp_reconcile_run(uuid) from public,anon,authenticated;
+grant execute on function public.aadp_qualify_raw_record(uuid,text,text,text,text) to service_role;
+grant execute on function public.aadp_reconcile_run(uuid) to service_role;
 
-create index if not exists command_tasks_run_state_idx
-  on public.command_tasks(run_id,state,created_at);
-create index if not exists raw_records_run_status_idx
-  on public.acquisition_raw_records(acquisition_run_id,processing_status);
-create index if not exists dispositions_run_disposition_idx
-  on public.acquisition_record_dispositions(acquisition_run_id,disposition);
-create index if not exists analysis_run_idx
-  on public.procurement_language_analysis(acquisition_run_id);
-create index if not exists discovery_runs_state_created_idx
-  on public.publisher_discovery_runs(state_code,created_at desc);
-create index if not exists action_needed_status_created_idx
-  on public.aadp_action_needed_alerts(status,created_at desc);
-create index if not exists acquisition_runs_assignment_created_idx
-  on public.acquisition_runs(assignment_id,created_at desc);
+create index if not exists command_tasks_run_state_idx on public.command_tasks(run_id,state,created_at);
+create index if not exists raw_records_run_status_idx on public.acquisition_raw_records(acquisition_run_id,processing_status);
+create index if not exists dispositions_run_disposition_idx on public.acquisition_record_dispositions(acquisition_run_id,disposition);
+create index if not exists analysis_run_idx on public.procurement_language_analysis(acquisition_run_id);
+create index if not exists discovery_runs_state_created_idx on public.publisher_discovery_runs(state_code,created_at desc);
+create index if not exists action_needed_status_created_idx on public.aadp_action_needed_alerts(status,created_at desc);
+create index if not exists acquisition_runs_assignment_created_idx on public.acquisition_runs(assignment_id,created_at desc);
 
 -- Existing shared touch function is part of the Command Center baseline.
-drop trigger if exists command_definitions_touch on public.command_definitions;
-create trigger command_definitions_touch
-before update on public.command_definitions
-for each row execute function public.command_touch_updated_at();
+do $$
+declare
+  item record;
+begin
+  for item in select * from (values
+    ('command_definitions','command_definitions_touch'),
+    ('command_tasks','command_tasks_touch'),
+    ('publisher_registry','publisher_registry_touch'),
+    ('publisher_discovery_runs','publisher_discovery_runs_touch'),
+    ('publisher_assignments','publisher_assignments_touch'),
+    ('aoie_change_recommendations','aoie_recommendations_touch')
+  ) as t(table_name,trigger_name)
+  loop
+    execute format('drop trigger if exists %I on public.%I',item.trigger_name,item.table_name);
+    execute format(
+      'create trigger %I before update on public.%I for each row execute function public.command_touch_updated_at()',
+      item.trigger_name,item.table_name
+    );
+  end loop;
+end
+$$;
 
-drop trigger if exists command_tasks_touch on public.command_tasks;
-create trigger command_tasks_touch
-before update on public.command_tasks
-for each row execute function public.command_touch_updated_at();
-
-drop trigger if exists publisher_registry_touch on public.publisher_registry;
-create trigger publisher_registry_touch
-before update on public.publisher_registry
-for each row execute function public.command_touch_updated_at();
-
-drop trigger if exists publisher_discovery_runs_touch on public.publisher_discovery_runs;
-create trigger publisher_discovery_runs_touch
-before update on public.publisher_discovery_runs
-for each row execute function public.command_touch_updated_at();
-
-drop trigger if exists publisher_assignments_touch on public.publisher_assignments;
-create trigger publisher_assignments_touch
-before update on public.publisher_assignments
-for each row execute function public.command_touch_updated_at();
-
-drop trigger if exists aoie_recommendations_touch on public.aoie_change_recommendations;
-create trigger aoie_recommendations_touch
-before update on public.aoie_change_recommendations
-for each row execute function public.command_touch_updated_at();
-
-alter table public.command_definitions enable row level security;
-alter table public.command_tasks enable row level security;
-alter table public.command_task_dependencies enable row level security;
-alter table public.command_task_attempts enable row level security;
-alter table public.publisher_registry enable row level security;
-alter table public.publisher_discovery_runs enable row level security;
-alter table public.publisher_assignments enable row level security;
-alter table public.acquisition_runs enable row level security;
-alter table public.acquisition_raw_records enable row level security;
-alter table public.acquisition_record_dispositions enable row level security;
-alter table public.acquisition_rejections enable row level security;
-alter table public.procurement_language_analysis enable row level security;
-alter table public.aoie_batch_reviews enable row level security;
-alter table public.aoie_change_recommendations enable row level security;
-alter table public.aadp_action_needed_alerts enable row level security;
-alter table public.executive_run_reports enable row level security;
-
-drop policy if exists aadp_operator_read_definitions on public.command_definitions;
-create policy aadp_operator_read_definitions on public.command_definitions
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_tasks on public.command_tasks;
-create policy aadp_operator_read_tasks on public.command_tasks
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_dependencies on public.command_task_dependencies;
-create policy aadp_operator_read_dependencies on public.command_task_dependencies
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_attempts on public.command_task_attempts;
-create policy aadp_operator_read_attempts on public.command_task_attempts
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_publishers on public.publisher_registry;
-create policy aadp_operator_read_publishers on public.publisher_registry
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_discovery on public.publisher_discovery_runs;
-create policy aadp_operator_read_discovery on public.publisher_discovery_runs
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_assignments on public.publisher_assignments;
-create policy aadp_operator_read_assignments on public.publisher_assignments
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_acquisition_runs on public.acquisition_runs;
-create policy aadp_operator_read_acquisition_runs on public.acquisition_runs
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_raw on public.acquisition_raw_records;
-create policy aadp_operator_read_raw on public.acquisition_raw_records
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_dispositions on public.acquisition_record_dispositions;
-create policy aadp_operator_read_dispositions on public.acquisition_record_dispositions
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_rejections on public.acquisition_rejections;
-create policy aadp_operator_read_rejections on public.acquisition_rejections
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_analysis on public.procurement_language_analysis;
-create policy aadp_operator_read_analysis on public.procurement_language_analysis
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_reviews on public.aoie_batch_reviews;
-create policy aadp_operator_read_reviews on public.aoie_batch_reviews
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_recommendations on public.aoie_change_recommendations;
-create policy aadp_operator_read_recommendations on public.aoie_change_recommendations
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_action_needed on public.aadp_action_needed_alerts;
-create policy aadp_operator_read_action_needed on public.aadp_action_needed_alerts
-for select to authenticated using (public.command_is_operator());
-
-drop policy if exists aadp_operator_read_reports on public.executive_run_reports;
-create policy aadp_operator_read_reports on public.executive_run_reports
-for select to authenticated using (public.command_is_operator());
-
-revoke insert,update,delete on
-  public.command_definitions,
-  public.command_tasks,
-  public.command_task_dependencies,
-  public.command_task_attempts,
-  public.publisher_registry,
-  public.publisher_discovery_runs,
-  public.publisher_assignments,
-  public.acquisition_runs,
-  public.acquisition_raw_records,
-  public.acquisition_record_dispositions,
-  public.acquisition_rejections,
-  public.procurement_language_analysis,
-  public.aoie_batch_reviews,
-  public.aoie_change_recommendations,
-  public.aadp_action_needed_alerts,
-  public.executive_run_reports
-from anon, authenticated;
+do $$
+declare
+  item record;
+begin
+  for item in select * from (values
+    ('command_definitions','aadp_operator_read_definitions'),
+    ('command_tasks','aadp_operator_read_tasks'),
+    ('command_task_dependencies','aadp_operator_read_dependencies'),
+    ('command_task_attempts','aadp_operator_read_attempts'),
+    ('publisher_registry','aadp_operator_read_publishers'),
+    ('publisher_discovery_runs','aadp_operator_read_discovery'),
+    ('publisher_assignments','aadp_operator_read_assignments'),
+    ('acquisition_runs','aadp_operator_read_acquisition_runs'),
+    ('acquisition_raw_records','aadp_operator_read_raw'),
+    ('acquisition_record_dispositions','aadp_operator_read_dispositions'),
+    ('acquisition_rejections','aadp_operator_read_rejections'),
+    ('procurement_language_analysis','aadp_operator_read_analysis'),
+    ('aoie_batch_reviews','aadp_operator_read_reviews'),
+    ('aoie_change_recommendations','aadp_operator_read_recommendations'),
+    ('aadp_action_needed_alerts','aadp_operator_read_action_needed'),
+    ('executive_run_reports','aadp_operator_read_reports')
+  ) as t(table_name,policy_name)
+  loop
+    execute format('alter table public.%I enable row level security',item.table_name);
+    execute format('drop policy if exists %I on public.%I',item.policy_name,item.table_name);
+    execute format(
+      'create policy %I on public.%I for select to authenticated using (public.command_is_operator())',
+      item.policy_name,item.table_name
+    );
+    execute format('revoke insert,update,delete on public.%I from anon,authenticated',item.table_name);
+  end loop;
+end
+$$;
 
 insert into public.command_definitions(command_key,version,task_graph)
 values(
-  'AADP_PUBLISHER_ACQUISITION',
-  '1.0',
+  'AADP_PUBLISHER_ACQUISITION','1.0',
   '["PUBLISHER_ASSIGNMENT_CREATE","ACQUISITION_RUN_START","ACQUISITION_PAGE_FETCH","ACQUISITION_RECORD_STORE","ACQUISITION_RUN_CLOSE","RECORD_NORMALIZATION","RECORD_DEDUPLICATION","RECORD_QUALIFICATION","QUALIFIED_RECORD_UPSERT","REJECTION_RECORD_CREATE","RUN_RECONCILIATION","AOIE_BATCH_REVIEW","PROCUREMENT_LANGUAGE_ANALYSIS","MATCHING_RECOMMENDATION_CREATE","MATCHING_RECOMMENDATION_TEST","EXECUTIVE_REPORT_CREATE"]'::jsonb
 )
 on conflict(command_key) do update
-set version=excluded.version,
-    task_graph=excluded.task_graph,
-    updated_at=now();
+set version=excluded.version,task_graph=excluded.task_graph,updated_at=now();
 
 insert into public.command_definitions(command_key,version,task_graph)
 values(
-  'AADP_STATE_PUBLISHER_DISCOVERY',
-  '1.0',
+  'AADP_STATE_PUBLISHER_DISCOVERY','1.0',
   '["PUBLISHER_DISCOVERY","PUBLISHER_ACCESS_ASSESSMENT","PUBLISHER_REGISTRY_UPDATE"]'::jsonb
 )
 on conflict(command_key) do update
-set version=excluded.version,
-    task_graph=excluded.task_graph,
-    updated_at=now();
+set version=excluded.version,task_graph=excluded.task_graph,updated_at=now();
