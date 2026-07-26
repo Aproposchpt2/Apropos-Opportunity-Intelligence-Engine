@@ -24,7 +24,15 @@ jobs:
       - name: Validate browser JavaScript
         run: node --check assets/command-center.js
       - name: Run acceptance tests
-        run: node --test tests/*.test.mjs
+        run: |
+          set -o pipefail
+          node --test tests/*.test.mjs 2>&1 | tee acceptance-test.log
+      - name: Upload acceptance diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-test-diagnostics
+          path: acceptance-test.log
       - name: Validate operational schema
         run: |
           for table in command_runs command_jobs command_events command_failures command_metrics daily_executive_briefs system_status; do
