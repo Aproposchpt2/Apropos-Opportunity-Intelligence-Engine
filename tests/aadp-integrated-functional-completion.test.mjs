@@ -74,7 +74,7 @@ test('state publisher discovery is separate from recurring acquisition', () => {
 
 test('authoritative migration uses an expression unique index rather than an invalid expression constraint', () => {
   assert.match(migration, /publisher_registry_name_state_unique_idx/);
-  assert.match(migration, /coalesce\(state_code,' '\)|coalesce\(state_code,''\)/i);
+  assert.match(migration, /coalesce\(state_code,\s*''\)/i);
   assert.doesNotMatch(migration, /unique\s*\(\s*publisher_name\s*,\s*coalesce/i);
 });
 
