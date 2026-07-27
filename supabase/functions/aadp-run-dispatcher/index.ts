@@ -94,8 +94,8 @@ Deno.serve(async (request: Request) => {
     await refreshProjection(runId, assignment);
 
     if (!outcome.ok && !outcome.retry) return json(await finalize(runId, assignment));
-    EdgeRuntime.waitUntil(invoke('aadp-run-dispatcher', { run_id: runId }));
-    return json({ run_id: runId, task: task.task_type, outcome, next_dispatch_scheduled: true }, 202);
+    const nextDispatch = await invoke('aadp-run-dispatcher', { run_id: runId });
+    return json({ run_id: runId, task: task.task_type, outcome, next_dispatch_acknowledged: true, next_dispatch: nextDispatch }, 202);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
   }
