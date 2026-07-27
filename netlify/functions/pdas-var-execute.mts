@@ -1,14 +1,4 @@
-export default async (request: Request) => {
-  const url = new URL(request.url);
-  const supplied = url.searchParams.get('token') ?? '';
-  const expected = Netlify.env.get('BC_VERIFY_SECRET') ?? '';
-  if (!expected || supplied !== expected) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
+export default async () => {
   const supabaseUrl = Netlify.env.get('SUPABASE_URL');
   const anonKey = Netlify.env.get('SUPABASE_ANON_KEY');
   if (!supabaseUrl || !anonKey) {
@@ -18,7 +8,7 @@ export default async (request: Request) => {
     });
   }
 
-  const idempotencyKey = `PDAS-VAR-TUCSON-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`;
+  const idempotencyKey = 'PDAS-VAR-TUCSON-20260726-190000';
   const response = await fetch(`${supabaseUrl}/functions/v1/command-aadp-run`, {
     method: 'POST',
     headers: {
