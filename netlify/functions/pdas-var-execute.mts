@@ -10,8 +10,8 @@ export default async (request: Request) => {
   }
 
   const supabaseUrl = Netlify.env.get('SUPABASE_URL');
-  const serviceKey = Netlify.env.get('SUPABASE_SERVICE_KEY');
-  if (!supabaseUrl || !serviceKey) {
+  const anonKey = Netlify.env.get('SUPABASE_ANON_KEY');
+  if (!supabaseUrl || !anonKey) {
     return new Response(JSON.stringify({ error: 'missing_server_configuration' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -23,8 +23,8 @@ export default async (request: Request) => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
     },
     body: JSON.stringify({
       assignment_id: '968c2533-6c66-4c73-8c52-049d61804e8f',
