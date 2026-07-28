@@ -14,8 +14,9 @@ const acquisition=await text('supabase/functions/command-aadp-run/index.ts');
 test('Discovery Step 03 exposes state scope multi-select and governed controls',()=>{
   for(const id of ['discoveryScopeConfiguration','discoveryState','discoveryScope','discoveryOrganizationTypes','selectAllDiscoveryTypes','governanceOfficialSources','governanceDuplicateDetection','governanceCandidateStaging','governanceHumanApproval']) assert.match(html,new RegExp(`id="${id}"`));
   assert.match(html,/id="discoveryOrganizationTypes"\s+multiple/);
-  for(const type of ['State Agencies','Counties','Cities \/ Municipalities','Universities','Community Colleges','School Districts','Transportation Authorities','Public Utilities','Water Districts','Special Districts','Public Authorities','Independent Agencies','Other Public Procurement Publishers']) assert.match(html,new RegExp(type));
+  for(const type of ['State Agencies','Counties','Cities / Municipalities','Universities','Community Colleges','School Districts','Transportation Authorities','Public Utilities','Water Districts','Special Districts','Public Authorities','Independent Agencies','Other Public Procurement Publishers']) assert.match(html,new RegExp(type));
   assert.match(html,/assets\/command-center-discovery\.js/);
+  assert.match(html,/Existing publisher selection is not required/);
 });
 
 test('Discovery readiness is mission-type specific and does not require an existing publisher',()=>{
@@ -23,7 +24,6 @@ test('Discovery readiness is mission-type specific and does not require an exist
   assert.match(discoveryUi,/selectedDiscoveryTypes\(\)/);
   assert.match(discoveryUi,/discoveryGovernanceAvailable\(\)/);
   assert.match(discoveryUi,/BEGIN STATE DISCOVERY/);
-  assert.match(discoveryUi,/existing_publisher_selection_required/);
   assert.match(discoveryUi,/publishers:Boolean\(\$\('discoveryState'\)\.value\)/);
   assert.match(discoveryUi,/queue:types\.length>0/);
   assert.match(discoveryUi,/estimate:discoveryGovernanceAvailable\(\)/);
@@ -44,6 +44,7 @@ test('Discovery candidates are staged outside the authoritative Publisher Regist
   assert.match(migration,/create table if not exists public\.publisher_discovery_candidates/);
   assert.match(migration,/human_review_before_registry_admission_required/);
   assert.match(discoveryFn,/publisher_discovery_candidates/);
+  assert.match(discoveryFn,/existing_publisher_selection_required:\s*false/);
   assert.match(discoveryFn,/registry_records_created:\s*0/);
   assert.match(discoveryFn,/duplicate_registry_matches/);
   assert.doesNotMatch(discoveryFn,/db\('publisher_registry'\s*,\s*\{\s*method:\s*'POST'/);
