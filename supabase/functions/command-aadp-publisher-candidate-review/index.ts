@@ -1,14 +1,31 @@
-import { corsHeaders, db, json, parseBody } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody, requireEnv } from '../_shared/command.ts';
 
 type JsonRecord = Record<string, unknown>;
 const asRecord = (value: unknown): JsonRecord => value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : value == null ? '' : String(value);
+
+async function requireOperator(request: Request): Promise<boolean> {
+  const authorization = request.headers.get('Authorization') || '';
+  if (!authorization.startsWith('Bearer ')) return false;
+  const response = await fetch(`${requireEnv('SUPABASE_URL')}/rest/v1/rpc/command_is_operator`, {
+    method: 'POST',
+    headers: {
+      apikey: requireEnv('SUPABASE_ANON_KEY'),
+      Authorization: authorization,
+      'Content-Type': 'application/json'
+    },
+    body: '{}'
+  });
+  if (!response.ok) return false;
+  return (await response.json().catch(() => false)) === true;
+}
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
+    if (!(await requireOperator(request))) return json({ error: 'Command Center operator authorization required' }, 403);
     const body = asRecord(await parseBody(request));
     const candidateId = text(body.candidate_id);
     const decision = text(body.decision).toUpperCase();
