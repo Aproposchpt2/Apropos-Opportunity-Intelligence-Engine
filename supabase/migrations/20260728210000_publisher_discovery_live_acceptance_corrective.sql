@@ -49,6 +49,9 @@ create index if not exists publisher_discovery_candidate_review_idx
 create index if not exists publisher_discovery_candidate_duplicate_idx
   on public.publisher_discovery_candidates (duplicate_publisher_id)
   where duplicate_publisher_id is not null;
+create index if not exists publisher_discovery_candidate_admitted_idx
+  on public.publisher_discovery_candidates (admitted_publisher_id)
+  where admitted_publisher_id is not null;
 
 drop trigger if exists publisher_discovery_candidates_touch on public.publisher_discovery_candidates;
 create trigger publisher_discovery_candidates_touch
