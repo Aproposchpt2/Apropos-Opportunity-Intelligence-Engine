@@ -61,10 +61,11 @@ test('Human review is the only corrective admission path and enforces verificati
   assert.match(reviewFn,/admitted_by_human_review:\s*true/);
 });
 
-test('Corrective migration preserves acquisition referential integrity',()=>{
+test('Corrective migration preserves acquisition integrity and least privilege',()=>{
   assert.doesNotMatch(migration,/alter table public\.publisher_assignments[\s\S]*drop not null/i);
   assert.doesNotMatch(migration,/alter table public\.acquisition_runs[\s\S]*drop not null/i);
   assert.match(migration,/publisher_discovery_candidates/);
   assert.match(migration,/enable row level security/);
+  assert.match(migration,/revoke all on public\.publisher_discovery_candidates from anon, authenticated/);
   assert.match(migration,/grant select on public\.publisher_discovery_candidates to authenticated/);
 });
