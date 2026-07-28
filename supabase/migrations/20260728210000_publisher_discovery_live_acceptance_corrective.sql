@@ -62,8 +62,7 @@ create policy aadp_operator_read_discovery_candidates
   for select to authenticated
   using (public.command_is_operator());
 
-revoke all on public.publisher_discovery_candidates from anon;
-revoke insert, update, delete on public.publisher_discovery_candidates from authenticated;
+revoke all on public.publisher_discovery_candidates from anon, authenticated;
 grant select on public.publisher_discovery_candidates to authenticated;
 grant all on public.publisher_discovery_candidates to service_role;
 
