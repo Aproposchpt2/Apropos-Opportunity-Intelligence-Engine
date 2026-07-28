@@ -27,7 +27,7 @@ async function createDiscoveryRun(body: JsonRecord, stateCode: string) {
     body: JSON.stringify({
       state_code: stateCode,
       mission_name: text(body.mission_name) || null,
-      discovery_scope: text(body.discovery_scope) || null,
+      discovery_scope: text(body.discovery_scope),
       organization_types: stringArray(body.organization_types),
       intelligence_provider: text(body.provider) || null,
       operator_name: text(body.operator) || null,
@@ -54,10 +54,14 @@ Deno.serve(async (request: Request) => {
     const stateCode = text(body.state_code).toUpperCase();
     const candidates = Array.isArray(body.publisher_candidates) ? body.publisher_candidates.map(asRecord) : [];
     const action = text(body.action).toUpperCase() || (candidates.length ? 'START_AND_INGEST' : 'START');
+    const discoveryRunId = text(body.discovery_run_id);
     if (!/^[A-Z]{2}$/.test(stateCode)) return json({ error: 'state_code must be a two-letter state code' }, 400);
+    if (!discoveryRunId) {
+      if (!text(body.discovery_scope)) return json({ error: 'discovery_scope is required for a new Discovery mission' }, 400);
+      if (stringArray(body.organization_types).length === 0) return json({ error: 'At least one organization_type is required for a new Discovery mission' }, 400);
+    }
 
     let discovery: JsonRecord | undefined;
-    const discoveryRunId = text(body.discovery_run_id);
     if (discoveryRunId) {
       const existingRuns = await db(`publisher_discovery_runs?id=eq.${encodeURIComponent(discoveryRunId)}&select=*`);
       discovery = existingRuns?.[0];
