@@ -21,7 +21,54 @@ const GOVERNANCE = Object.freeze({
   human_review_before_registry_admission_required: true
 });
 
-async function createDiscoveryRun(body: JsonRecord, stateCode: string) {
+async function ensureMissionRun(missionId: string, stateCode: string) {
+  if (!missionId) return null;
+  const missions = await db(`command_missions?id=eq.${encodeURIComponent(missionId)}&select=*`);
+  const mission = missions?.[0];
+  if (!mission) throw new Error('Generalized mission not found');
+  if (text(mission.mission_type_key) !== 'PUBLISHER_DISCOVERY') throw new Error('mission_id is not a Publisher Discovery mission');
+  if (text(mission.authorization_state) !== 'AUTHORIZED') throw new Error('Publisher Discovery mission is not authorized');
+  if (text(mission.state_code).toUpperCase() !== stateCode) throw new Error('Mission state does not match discovery state');
+
+  if (mission.command_run_id) {
+    const existingRuns = await db(`command_runs?id=eq.${mission.command_run_id}&select=*`);
+    if (existingRuns?.[0]) return existingRuns[0];
+  }
+
+  const types = await db('command_mission_types?mission_type_key=eq.PUBLISHER_DISCOVERY&select=default_command_definition_id');
+  const definitionId = types?.[0]?.default_command_definition_id;
+  if (!definitionId) throw new Error('Publisher Discovery runtime definition is unavailable');
+  const idempotencyKey = `mission:${missionId}`;
+  let runs = await db(`command_runs?idempotency_key=eq.${encodeURIComponent(idempotencyKey)}&select=*`);
+  let run = runs?.[0];
+  if (!run) {
+    const created = await db('command_runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: idempotencyKey,
+        definition_id: definitionId,
+        status: 'running',
+        aadp_state: 'RUNNING',
+        current_stage: 'PUBLISHER_DISCOVERY_STARTED',
+        mission_type_key: 'PUBLISHER_DISCOVERY',
+        mission_name: mission.mission_name,
+        state_code: stateCode,
+        assigned_agent: mission.assigned_agent,
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        execution_evidence: { mission_id: missionId, adapter: 'PUBLISHER_DISCOVERY', existing_runtime_preserved: true }
+      })
+    });
+    run = created[0];
+  }
+  await db('rpc/command_bind_mission_run', {
+    method: 'POST',
+    body: JSON.stringify({ p_mission_id: missionId, p_command_run_id: run.id })
+  });
+  return run;
+}
+
+async function createDiscoveryRun(body: JsonRecord, stateCode: string, commandRunId: string | null) {
   const created = await db('publisher_discovery_runs', {
     method: 'POST',
     body: JSON.stringify({
@@ -38,7 +85,8 @@ async function createDiscoveryRun(body: JsonRecord, stateCode: string) {
       evidence: {
         source: 'COMMAND_CENTER_DISCOVERY_MISSION',
         mission_notes: text(body.notes) || null,
-        governance: GOVERNANCE
+        governance: GOVERNANCE,
+        command_run_id: commandRunId
       }
     })
   });
@@ -51,6 +99,7 @@ Deno.serve(async (request: Request) => {
 
   try {
     const body = asRecord(await parseBody(request));
+    const missionId = text(body.mission_id);
     const stateCode = text(body.state_code).toUpperCase();
     const candidates = Array.isArray(body.publisher_candidates) ? body.publisher_candidates.map(asRecord) : [];
     const action = text(body.action).toUpperCase() || (candidates.length ? 'START_AND_INGEST' : 'START');
@@ -61,6 +110,7 @@ Deno.serve(async (request: Request) => {
       if (stringArray(body.organization_types).length === 0) return json({ error: 'At least one organization_type is required for a new Discovery mission' }, 400);
     }
 
+    const missionRun = await ensureMissionRun(missionId, stateCode);
     let discovery: JsonRecord | undefined;
     if (discoveryRunId) {
       const existingRuns = await db(`publisher_discovery_runs?id=eq.${encodeURIComponent(discoveryRunId)}&select=*`);
@@ -68,11 +118,13 @@ Deno.serve(async (request: Request) => {
       if (!discovery) return json({ error: 'Discovery run not found' }, 404);
       if (text(discovery.state_code).toUpperCase() !== stateCode) return json({ error: 'state_code does not match discovery run' }, 409);
     } else {
-      discovery = await createDiscoveryRun(body, stateCode);
+      discovery = await createDiscoveryRun(body, stateCode, missionRun?.id ? text(missionRun.id) : null);
     }
 
     if (action === 'START' && candidates.length === 0) {
       return json({
+        mission_id: missionId || null,
+        command_run_id: missionRun?.id || null,
         discovery_run_id: discovery.id,
         state_code: stateCode,
         status: 'RUNNING',
@@ -157,12 +209,28 @@ Deno.serve(async (request: Request) => {
           registry_records_created: 0,
           human_review_required: true,
           resume_point: staged > 0 ? 'CANDIDATE_REVIEW' : 'PUBLISHER_DISCOVERY_STARTED',
-          governance: GOVERNANCE
+          governance: GOVERNANCE,
+          command_run_id: missionRun?.id || null
         }
       })
     });
 
+    if (missionRun?.id) {
+      await db(`command_runs?id=eq.${missionRun.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: staged > 0 ? 'interrupted' : 'running',
+          aadp_state: staged > 0 ? 'PAUSED' : 'RUNNING',
+          current_stage: staged > 0 ? 'PROJECT_OWNER_APPROVAL_OR_EXCEPTION_REVIEW' : 'PUBLISHER_DISCOVERY_STARTED',
+          action_required: staged > 0,
+          last_activity_at: new Date().toISOString()
+        })
+      });
+    }
+
     return json({
+      mission_id: missionId || null,
+      command_run_id: missionRun?.id || null,
       discovery_run_id: discovery.id,
       state_code: stateCode,
       status: staged > 0 ? 'ACTION_NEEDED' : 'RUNNING',
