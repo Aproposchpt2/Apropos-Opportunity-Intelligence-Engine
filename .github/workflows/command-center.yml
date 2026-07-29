@@ -15,6 +15,7 @@ jobs:
           test -f index.html
           test -f assets/command-center.css
           test -f assets/command-center.js
+          test -f assets/command-center-discovery.js
           test -f assets/runtime-config.js
           grep -q "BEGIN DAILY OPERATIONS" index.html
           grep -q "Procurement Intelligence Operations Center" index.html
@@ -22,7 +23,9 @@ jobs:
           grep -q "EXECUTIVE DECISION CENTER" index.html
           grep -q "LIVE MISSION TIMELINE" index.html
       - name: Validate browser JavaScript
-        run: node --check assets/command-center.js
+        run: |
+          node --check assets/command-center.js
+          node --check assets/command-center-discovery.js
       - name: Run acceptance tests
         run: |
           set -o pipefail
@@ -47,4 +50,4 @@ jobs:
           grep -q "idempotencyKey" supabase/functions/command-begin-daily-operations/index.ts
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/command-center.js assets/command-center.css
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/command-center.js assets/command-center-discovery.js assets/command-center.css

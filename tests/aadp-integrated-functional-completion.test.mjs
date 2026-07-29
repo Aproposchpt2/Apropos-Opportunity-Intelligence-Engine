@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 const executorPath = 'supabase/functions/aadp-task-executor/index.ts';
 const executorV2Path = 'supabase/functions/aadp-task-executor-v2/index.ts';
+const adapterPath = 'supabase/functions/aadp-publisher-adapter/index.ts';
 const discoveryPath = 'supabase/functions/command-aadp-publisher-discovery/index.ts';
 const sharedPath = 'supabase/functions/_shared/aadp.ts';
 const commandPath = 'supabase/functions/command-aadp-run/index.ts';
@@ -11,6 +12,7 @@ const migrationPath = 'supabase/migrations/20260726010000_aadp_operating_system_
 
 const executor = fs.readFileSync(executorPath, 'utf8');
 const executorV2 = fs.readFileSync(executorV2Path, 'utf8');
+const adapter = fs.readFileSync(adapterPath, 'utf8');
 const discovery = fs.readFileSync(discoveryPath, 'utf8');
 const shared = fs.readFileSync(sharedPath, 'utf8');
 const command = fs.readFileSync(commandPath, 'utf8');
@@ -83,15 +85,16 @@ test('corrected executive reporting resolves review before recommendations and r
   assert.doesNotMatch(executorV2, /Promise\.all\([\s\S]*batch_review_id=eq\.\$\{reviews/);
 });
 
-test('the orchestrator routes tasks through the corrected executor', () => {
-  assert.match(shared, /invoke\('aadp-task-executor-v2'/);
+test('the orchestrator routes tasks through the merged adapter and corrected executor', () => {
+  assert.match(shared, /invoke\('aadp-publisher-adapter'/);
+  assert.match(adapter, /invoke\('aadp-task-executor-v2'/);
   assert.match(executorV2, /invoke\('aadp-task-executor'/);
   assert.match(command, /runAadpTask/);
   assert.match(command, /createTaskGraph/);
 });
 
 test('no service-role secret is embedded in AADP function source', () => {
-  for (const source of [executor, executorV2, discovery]) {
+  for (const source of [executor, executorV2, adapter, discovery]) {
     assert.doesNotMatch(source, /SUPABASE_SERVICE_ROLE_KEY\s*=\s*['"]/);
     assert.doesNotMatch(source, /eyJ[A-Za-z0-9_-]{20,}/);
   }
