@@ -1,7 +1,8 @@
-import { AGENT_SEQUENCE, corsHeaders, db, invoke, json, parseBody, recordEvent } from '../_shared/command.ts';
+import { AGENT_SEQUENCE, corsHeaders, db, invoke, json, parseBody, recordEvent, requireDashboardAuth } from '../_shared/command.ts';
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const authError = await requireDashboardAuth(request); if (authError) return authError;
   try {
     const body = await parseBody(request) || {};
     const date = body.operation_date || new Date().toISOString().slice(0, 10);

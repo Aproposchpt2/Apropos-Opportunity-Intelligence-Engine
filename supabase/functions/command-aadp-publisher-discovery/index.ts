@@ -1,4 +1,4 @@
-import { corsHeaders, db, json, parseBody } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody, requireDashboardAuth } from '../_shared/command.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,6 +47,7 @@ async function createDiscoveryRun(body: JsonRecord, stateCode: string) {
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const authError = await requireDashboardAuth(request); if (authError) return authError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {

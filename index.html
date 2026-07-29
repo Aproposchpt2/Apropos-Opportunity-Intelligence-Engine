@@ -11,6 +11,18 @@
   <link rel="stylesheet" href="assets/command-center.css">
 </head>
 <body>
+<div id="gateOverlay" style="position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:#0F2A6A">
+  <div class="panel" style="max-width:420px;width:calc(100% - 40px);text-align:center;padding:36px 32px">
+    <p class="section-kicker">AUTHORIZATION REQUIRED</p>
+    <h2 style="margin:6px 0 4px">Operations Center Access</h2>
+    <p style="color:rgba(255,255,255,.6);font-size:.85rem;margin:0 0 20px">This is an internal command center. Enter the access password to continue.</p>
+    <form id="gateForm" style="display:flex;flex-direction:column;gap:10px">
+      <input id="gatePassword" type="password" autocomplete="off" placeholder="Password" style="padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#fff;font-size:.95rem">
+      <button class="primary-action" type="submit" style="min-height:48px;margin:4px 0 0">Enter</button>
+    </form>
+    <p id="gateError" style="color:#ff9aa3;font-size:.82rem;min-height:18px;margin:12px 0 0"></p>
+  </div>
+</div>
 <div class="operations-shell">
 <header class="command-header"><div><p class="eyebrow">APROPOS PROCUREMENT INTELLIGENCE ENGINE</p><h1>Procurement Intelligence Operations Center</h1><p class="subtitle">Connecting Government Needs with Business Capability.</p></div><div class="header-status"><span>OVERALL SYSTEM HEALTH</span><strong id="systemStatus" class="status-pill status-idle">INITIALIZING</strong><small id="lastRefresh">Not refreshed</small></div></header>
 <main>

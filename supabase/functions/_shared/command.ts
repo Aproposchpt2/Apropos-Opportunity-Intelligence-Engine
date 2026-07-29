@@ -17,6 +17,27 @@ export function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders });
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Public callers only ever have the browser-safe anon key, which is not
+// sufficient authorization on its own for operational commands (start/stop
+// a run, record operator decisions, view acquisition data, etc). This checks
+// a password supplied via the x-dashboard-password header against a hash
+// stored in command_center_auth (service-role only, RLS blocks anon reads).
+export async function requireDashboardAuth(request: Request): Promise<Response | null> {
+  const supplied = request.headers.get('x-dashboard-password') || '';
+  if (!supplied) return json({ ok: false, error: 'Unauthorized' }, 401);
+  const suppliedHash = await sha256Hex(supplied);
+  const rows = await db('command_center_auth?id=eq.true&select=password_hash');
+  const stored = rows?.[0]?.password_hash;
+  if (!stored || suppliedHash !== stored) return json({ ok: false, error: 'Unauthorized' }, 401);
+  return null;
+}
+
 export function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing required environment variable: ${name}`);

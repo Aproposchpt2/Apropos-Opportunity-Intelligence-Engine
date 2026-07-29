@@ -1,7 +1,8 @@
-import { corsHeaders, db, json, parseBody } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody, requireDashboardAuth } from '../_shared/command.ts';
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const authError = await requireDashboardAuth(request); if (authError) return authError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try {
     const body = await parseBody(request) as any;

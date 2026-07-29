@@ -1,7 +1,8 @@
-import { corsHeaders, db, json } from '../_shared/command.ts';
+import { corsHeaders, db, json, requireDashboardAuth } from '../_shared/command.ts';
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const authError = await requireDashboardAuth(request); if (authError) return authError;
   try {
     const runs = await db('command_runs?select=*&order=created_at.desc&limit=20');
     const run = runs[0] || null;

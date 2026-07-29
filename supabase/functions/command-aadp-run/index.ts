@@ -1,4 +1,4 @@
-import { corsHeaders, db, json, parseBody, recordEvent } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody, recordEvent, requireDashboardAuth } from '../_shared/command.ts';
 import { createTaskGraph, runAadpTask, validateAssignment } from '../_shared/aadp.ts';
 
 type JsonRecord = Record<string, unknown>;
@@ -112,6 +112,7 @@ async function executeRun(runId: string, assignment: JsonRecord) {
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const authError = await requireDashboardAuth(request); if (authError) return authError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
