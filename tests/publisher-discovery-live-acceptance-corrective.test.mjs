@@ -40,18 +40,29 @@ test('Known-publisher acquisition readiness and launcher remain protected',()=>{
   assert.match(acquisition,/publisher_assignments\?id=eq/);
 });
 
+test('Discovery service enforces scope and publisher types before creating a new run',()=>{
+  assert.match(discoveryFn,/discovery_scope is required for a new Discovery mission/);
+  assert.match(discoveryFn,/At least one organization_type is required for a new Discovery mission/);
+  assert.match(discoveryFn,/existing_publisher_selection_required:\s*false/);
+  assert.match(discoveryFn,/official_source_research_required:\s*true/);
+  assert.match(discoveryFn,/duplicate_registry_detection_required:\s*true/);
+  assert.match(discoveryFn,/candidate_record_creation_enabled:\s*true/);
+  assert.match(discoveryFn,/human_review_before_registry_admission_required:\s*true/);
+});
+
 test('Discovery candidates are staged outside the authoritative Publisher Registry',()=>{
   assert.match(migration,/create table if not exists public\.publisher_discovery_candidates/);
   assert.match(migration,/human_review_before_registry_admission_required/);
   assert.match(discoveryFn,/publisher_discovery_candidates/);
-  assert.match(discoveryFn,/existing_publisher_selection_required:\s*false/);
   assert.match(discoveryFn,/registry_records_created:\s*0/);
   assert.match(discoveryFn,/duplicate_registry_matches/);
   assert.doesNotMatch(discoveryFn,/db\('publisher_registry'\s*,\s*\{\s*method:\s*'POST'/);
   assert.doesNotMatch(discoveryFn,/db\(`publisher_registry\?id=.*method:\s*'PATCH'/s);
 });
 
-test('Human review is the only corrective admission path and enforces verification and duplicate gates',()=>{
+test('Human review is operator-authorized and enforces verification and duplicate gates',()=>{
+  assert.match(reviewFn,/command_is_operator/);
+  assert.match(reviewFn,/Command Center operator authorization required/);
   assert.match(reviewFn,/decision must be APPROVE or REJECT/);
   assert.match(reviewFn,/official_source_verified !== true/);
   assert.match(reviewFn,/duplicate_publisher_id/);
@@ -64,7 +75,7 @@ test('Human review is the only corrective admission path and enforces verificati
 test('Corrective migration preserves acquisition integrity and least privilege',()=>{
   assert.doesNotMatch(migration,/alter table public\.publisher_assignments[\s\S]*drop not null/i);
   assert.doesNotMatch(migration,/alter table public\.acquisition_runs[\s\S]*drop not null/i);
-  assert.match(migration,/publisher_discovery_candidates/);
+  assert.match(migration,/publisher_discovery_candidate_admitted_idx/);
   assert.match(migration,/enable row level security/);
   assert.match(migration,/revoke all on public\.publisher_discovery_candidates from anon, authenticated/);
   assert.match(migration,/grant select on public\.publisher_discovery_candidates to authenticated/);
