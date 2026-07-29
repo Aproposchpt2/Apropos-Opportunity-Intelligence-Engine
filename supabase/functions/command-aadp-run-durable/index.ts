@@ -36,7 +36,7 @@ Deno.serve(async (request: Request) => {
       if (unresolved?.[0] && ['ESCALATED','FAILED','RUNNING'].includes(unresolved[0].state)) {
         await db(`command_tasks?id=eq.${unresolved[0].id}`, { method: 'PATCH', body: JSON.stringify({ state: 'RETRY_PENDING', scheduled_for: new Date().toISOString() }) });
       }
-      await db(`command_runs?id=eq.${resumeRunId}`, { method: 'PATCH', body: JSON.stringify({ aadp_state: 'RUNNING', status: 'running', current_stage: resumeStage, resume_source_stage: resumeStage, resumed_at: new Date().toISOString(), completed_at: null, execution_evidence: { ...(run.execution_evidence ?? {}), architecture: 'AADP-OS-V1.3-DURABLE', resume_requested_at: new Date().toISOString(), mission_id: missionId || run.execution_evidence?.mission_id || null } }) });
+      await db(`command_runs?id=eq.${resumeRunId}`, { method: 'PATCH', body: JSON.stringify({ aadp_state: 'RUNNING', status: 'running', current_stage: resumeStage, resume_source_stage: resumeStage, resumed_at: new Date().toISOString(), completed_at: null, execution_evidence: { ...asRecord(run.execution_evidence), architecture: 'AADP-OS-V1.3-DURABLE', resume_requested_at: new Date().toISOString(), mission_id: missionId || text(asRecord(run.execution_evidence).mission_id) || null } }) });
       await recordEvent(resumeRunId, null, 'AADP_RUN_RESUMED', 'AADP publisher run resumed through durable dispatcher', { resume_source_stage: resumeStage, mission_id: missionId || null });
     } else {
       const assignmentId = text(body.assignment_id);
