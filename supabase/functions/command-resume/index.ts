@@ -1,6 +1,6 @@
 import { corsHeaders, db, invoke, json, parseBody, requireDashboardAuth } from '../_shared/command.ts';
 
-Deno.serve(async(request=>{
+Deno.serve(async(request)=>{
   if(request.method==='OPTIONS')return new Response('ok',{headers:corsHeaders});const authError=await requireDashboardAuth(request);if(authError)return authError;
   try{const body=await parseBody(request)||{},runId=String(body.run_id||'').trim();if(!runId)return json({error:'run_id is required'},400);const run=(await db(`command_runs?id=eq.${runId}&select=*`))[0];if(!run)return json({error:'Run not found'},404);if(!['failed','interrupted','stopped','completed_with_failures','paused'].includes(String(run.status||'').toLowerCase()))return json({error:`Run cannot resume from status ${run.status}`},409);
     await db(`command_runs?id=eq.${runId}`,{method:'PATCH',body:JSON.stringify({status:'running',stop_requested_at:null,completed_at:null,action_required:false,last_activity_at:new Date().toISOString()})});
@@ -11,4 +11,4 @@ Deno.serve(async(request=>{
     else result=await invoke('command-begin-daily-operations',{operation_date:String(run.idempotency_key||'').replace('daily:',''),resume_run_id:runId});
     return json(result,202);
   }catch(error){return json({error:error instanceof Error?error.message:String(error)},500);}
-}));
+});
