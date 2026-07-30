@@ -39,10 +39,10 @@ test('AADP runtime honors operator stop requests between tasks',async()=>{
   assert.match(stop,/pending_tasks_cancelled:true/);assert.match(stop,/state=in\.\(READY,RETRY_PENDING,ASSIGNED\)/);assert.match(stop,/OPERATOR_STOP_REQUESTED/);
 });
 
-test('generalized discovery runtime performs official-source web research and stages review candidates',async()=>{
+test('generalized and publisher discovery perform autonomous official-source research with review governance',async()=>{
   const js=await text('supabase/functions/command-research-discovery/index.ts');const pub=await text('supabase/functions/command-aadp-publisher-discovery/index.ts');
   assert.match(js,/api\.openai\.com\/v1\/responses/);assert.match(js,/type:'web_search'/);assert.match(js,/command_discovery_candidates/);assert.match(js,/PENDING_REVIEW/);assert.match(js,/human registry review required/i);
-  assert.match(pub,/autonomousResearch/);assert.match(pub,/official_source_verified/);assert.match(pub,/human_review_required:true/);
+  assert.match(pub,/api\.openai\.com\/v1\/responses/);assert.match(pub,/type:'web_search'/);assert.match(pub,/autonomous_research/);assert.match(pub,/stop_requested_at/);assert.match(pub,/official_source_verified/);assert.match(pub,/CANDIDATE_REVIEW/);assert.match(pub,/human_review_required:true/);
 });
 
 test('VAR generalized discovery migration creates RLS-protected persistence',async()=>{
