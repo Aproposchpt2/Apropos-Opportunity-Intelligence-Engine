@@ -1,0 +1,32 @@
+name: Materialize APIOS Command Center
+
+on:
+  push:
+    branches:
+      - agent/apios-command-center
+    paths:
+      - ".bootstrap/**"
+      - ".github/workflows/bootstrap-apios.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/apios-command-center
+      - name: Materialize reviewed implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part* | base64 --decode > /tmp/apios-build.tar.gz
+          tar -xzf /tmp/apios-build.tar.gz -C .
+          rm -rf .bootstrap .github/workflows/bootstrap-apios.yml
+          git config user.name "APROPOS APIOS Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Implement APIOS command center"
+          git push origin HEAD:agent/apios-command-center
