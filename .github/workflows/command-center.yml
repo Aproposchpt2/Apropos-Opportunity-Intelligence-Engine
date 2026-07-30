@@ -1,4 +1,4 @@
-name: Command Center Validation
+name: Executive Command Center Validation
 
 on:
   pull_request:
@@ -10,22 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate operations center
+      - name: Validate Executive Command Center assets
         run: |
           test -f index.html
-          test -f assets/command-center.css
-          test -f assets/command-center.js
-          test -f assets/command-center-discovery.js
+          test -f missions/index.html
           test -f assets/runtime-config.js
-          grep -q "BEGIN DAILY OPERATIONS" index.html
-          grep -q "Procurement Intelligence Operations Center" index.html
-          grep -q "MISSION READINESS" index.html
-          grep -q "EXECUTIVE DECISION CENTER" index.html
-          grep -q "LIVE MISSION TIMELINE" index.html
+          test -f assets/executive-core.js
+          test -f assets/executive-command-center.js
+          test -f assets/executive-launch.js
+          test -f assets/mission-workspace.js
+          grep -q "Executive Command Center" index.html
+          grep -q "State Operations Context" index.html
+          grep -q "Active Mission Monitors" index.html
+          grep -q "NAT-CORP Executive Control Plane" index.html
+          grep -q "Operational Notifications" index.html
       - name: Validate browser JavaScript
         run: |
-          node --check assets/command-center.js
-          node --check assets/command-center-discovery.js
+          node --check assets/executive-core.js
+          node --check assets/executive-command-center.js
+          node --check assets/executive-launch.js
+          node --check assets/mission-workspace.js
       - name: Run acceptance tests
         run: |
           set -o pipefail
@@ -36,18 +40,24 @@ jobs:
         with:
           name: acceptance-test-diagnostics
           path: acceptance-test.log
-      - name: Validate operational schema
+      - name: Validate generalized mission runtime source
         run: |
-          for table in command_runs command_jobs command_events command_failures command_metrics daily_executive_briefs system_status; do
-            grep -q "create table if not exists public.${table}" supabase/migrations/20260723230000_command_center.sql
-            grep -q "alter table public.${table} enable row level security" supabase/migrations/20260723230000_command_center.sql
+          test -f supabase/functions/command-mission-control/index.ts
+          test -f supabase/functions/command-research-discovery/index.ts
+          test -f supabase/functions/command-aadp-publisher-discovery/index.ts
+          test -f supabase/functions/command-aadp-run/index.ts
+          test -f supabase/functions/command-stop/index.ts
+          grep -q "ACQUISITION_DISCOVERY" supabase/functions/command-mission-control/index.ts
+          grep -q "STATE_MISSION" supabase/functions/command-mission-control/index.ts
+          grep -q "command-research-discovery" supabase/functions/command-mission-control/index.ts
+          grep -q "isStopRequested" supabase/functions/command-aadp-run/index.ts
+      - name: Validate VAR discovery schema
+        run: |
+          test -f supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
+          for table in command_discovery_runs command_discovery_candidates business_development_registry opportunity_partner_registry institutional_buyer_registry; do
+            grep -qi "create table if not exists public.${table}" supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
+            grep -qi "alter table public.${table} enable row level security" supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
           done
-      - name: Validate five-agent orchestration
-        run: |
-          test "$(grep -c "functionName: 'agent-" supabase/functions/_shared/command.ts)" -eq 5
-          grep -q "for (const agent of AGENT_SEQUENCE)" supabase/functions/command-begin-daily-operations/index.ts
-          grep -q "max_attempts" supabase/functions/command-begin-daily-operations/index.ts
-          grep -q "idempotencyKey" supabase/functions/command-begin-daily-operations/index.ts
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/command-center.js assets/command-center-discovery.js assets/command-center.css
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js
