@@ -5,12 +5,14 @@ Deno.serve(async(request)=>{
   const authError=await requireDashboardAuth(request);if(authError)return authError;
   try{
     const body=await parseBody(request)||{};const runId=String(body.run_id||'').trim();if(!runId)return json({error:'run_id is required'},400);
-    const runs=await db(`command_runs?id=eq.${runId}&select=id,status`);if(!runs?.[0])return json({error:'run not found'},404);
+    const run=(await db(`command_runs?id=eq.${runId}&select=id,status`))?.[0];if(!run)return json({error:'run not found'},404);
+    if(['completed','stopped','cancelled'].includes(String(run.status||'').toLowerCase()))return json({run_id:runId,status:run.status,already_terminal:true});
     const now=new Date().toISOString();
     await db(`command_runs?id=eq.${runId}`,{method:'PATCH',body:JSON.stringify({status:'stopping',stop_requested_at:now,last_activity_at:now,current_stage:'STOP_REQUESTED'})});
-    await db(`command_tasks?run_id=eq.${runId}&state=in.(READY,RETRY_PENDING,ASSIGNED)`,{method:'PATCH',body:JSON.stringify({state:'CANCELLED',completed_at:now,execution_evidence:{cancelled_by:'OPERATOR_STOP',cancelled_at:now}})});
+    await db(`command_tasks?run_id=eq.${runId}&state=in.(READY,RETRY_PENDING,ASSIGNED)`,{method:'PATCH',body:JSON.stringify({state:'CANCELLED',completed_at:now,execution_evidence:{cancelled_by:'OPERATOR_STOP',cancelled_at:now}})}).catch(()=>null);
+    await db(`command_stage_projection?command_run_id=eq.${runId}&display_state=not.in.(COMPLETED,CANCELLED)`,{method:'PATCH',body:JSON.stringify({display_state:'CANCELLED',completed_at:now,updated_at:now,evidence:{cancelled_by:'OPERATOR_STOP',cancelled_at:now}})}).catch(()=>null);
     await db('system_status?singleton=eq.true',{method:'PATCH',body:JSON.stringify({current_execution_state:'stopping',updated_at:now})});
-    await recordEvent(runId,null,'OPERATOR_STOP_REQUESTED','Operator requested mission stop',{stop_requested_at:now,pending_tasks_cancelled:true});
-    return json({run_id:runId,status:'stopping',pending_tasks_cancelled:true});
+    await recordEvent(runId,null,'OPERATOR_STOP_REQUESTED','Operator requested mission stop',{stop_requested_at:now,pending_tasks_cancelled:true,stage_projection_cancel_requested:true});
+    return json({run_id:runId,status:'stopping',pending_tasks_cancelled:true,stage_projection_cancel_requested:true});
   }catch(error){return json({error:error instanceof Error?error.message:String(error)},500);}
 });
