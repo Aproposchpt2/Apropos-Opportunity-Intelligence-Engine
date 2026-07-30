@@ -15,6 +15,16 @@ test('simplified executive launch exposes governed mission controls',async()=>{
   assert.match(html,/AUTHORIZE & EXECUTE/);assert.match(html,/Human authorization remains authoritative/i);
 });
 
+test('mission launch state selector includes all 50 U.S. states for acquisition and discovery missions',async()=>{
+  const html=await text('index.html');
+  const codes=['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+  for(const code of codes)assert.match(html,new RegExp(`<option value="${code}">`));
+  const selector=html.match(/<select id="eccMissionState">([\s\S]*?)<\/select>/)?.[1]||'';
+  const stateOptions=[...selector.matchAll(/<option value="([A-Z]{2})">/g)].map(x=>x[1]);
+  assert.equal(stateOptions.length,50);
+  assert.equal(new Set(stateOptions).size,50);
+});
+
 test('dashboard invokes only password-protected executive command functions',async()=>{
   const core=await text('assets/executive-core.js');const launch=await text('assets/executive-launch.js');const dashboard=await text('assets/executive-command-center.js');
   assert.match(core,/x-dashboard-password/);assert.match(core,/command-executive-status/);assert.match(launch,/command-mission-control/);assert.match(dashboard,/15s/i);
