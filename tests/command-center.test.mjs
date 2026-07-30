@@ -5,14 +5,16 @@ const text=async path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('root is the internal Executive Command Center',async()=>{
   const html=await text('index.html');
-  for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','State Operations Context','Authorize an Operation','Active Mission Monitors','NAT-CORP Executive Control Plane','Capability Readiness','Recurring Automation','Action Required','Lifecycle Control','Automation Infrastructure','Operational Notifications'])assert.match(html,new RegExp(label,'i'));
+  for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','State Operations Context','Authorize & Execute','Active Mission Monitors','NAT-CORP Executive Control Plane','Capability Readiness','Recurring Automation','Action Required','Lifecycle Control','Automation Infrastructure','Operational Notifications'])assert.match(html,new RegExp(label,'i'));
   assert.match(html,/Internal APROPOS operations/i);assert.match(html,/id="gatePassword"/);assert.match(html,/noindex,nofollow/i);
 });
 
-test('simplified executive launch exposes governed mission controls',async()=>{
-  const html=await text('index.html');
-  for(const id of ['eccMissionType','eccMissionName','eccAgent','eccMissionState','eccLaunchForm','eccActiveMissions','eccRecommendation','eccStateInventory','eccSchedules','eccActionRequired','eccHealth'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(html,/AUTHORIZE & EXECUTE/);assert.match(html,/Human authorization remains authoritative/i);
+test('all command-center launches require only Task State Agent and Execute',async()=>{
+  const html=await text('index.html');const launch=await text('assets/executive-launch.js');
+  for(const id of ['eccMissionType','eccAgent','eccMissionState','eccLaunchForm','eccActiveMissions','eccRecommendation','eccStateInventory','eccSchedules','eccActionRequired','eccHealth'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.doesNotMatch(html,/id="eccMissionName"/);
+  assert.match(html,/>Task<select id="eccMissionType"/);assert.match(html,/>State<select id="eccMissionState"/);assert.match(html,/>Agent<select id="eccAgent"/);assert.match(html,/>EXECUTE</);
+  assert.match(html,/All task parameters are predefined by APIOS/i);assert.match(launch,/Select Task, State, and Agent before execution/i);assert.match(launch,/mission_name:`\$\{stateName\(stateCode\)\} — \$\{taskName\(\)\}`/);
 });
 
 test('mission launch state selector includes all 50 U.S. states for acquisition and discovery missions',async()=>{
@@ -21,8 +23,13 @@ test('mission launch state selector includes all 50 U.S. states for acquisition 
   for(const code of codes)assert.match(html,new RegExp(`<option value="${code}">`));
   const selector=html.match(/<select id="eccMissionState">([\s\S]*?)<\/select>/)?.[1]||'';
   const stateOptions=[...selector.matchAll(/<option value="([A-Z]{2})">/g)].map(x=>x[1]);
-  assert.equal(stateOptions.length,50);
-  assert.equal(new Set(stateOptions).size,50);
+  assert.equal(stateOptions.length,50);assert.equal(new Set(stateOptions).size,50);
+});
+
+test('every governed task has predefined backend parameters',async()=>{
+  const js=await text('supabase/functions/command-mission-control/index.ts');
+  for(const key of ['PUBLISHER_DISCOVERY','ACQUISITION_DISCOVERY','BUSINESS_DEVELOPMENT_DISCOVERY','OPPORTUNITY_PARTNER_DISCOVERY','INSTITUTIONAL_BUYER_DISCOVERY','STATE_MISSION'])assert.match(js,new RegExp(`${key}:\\{`));
+  assert.match(js,/TASK_DEFAULTS/);assert.match(js,/predefined_parameters/);assert.match(js,/Task, State, and Agent are required/);
 });
 
 test('dashboard invokes only password-protected executive command functions',async()=>{
