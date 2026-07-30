@@ -1,4 +1,4 @@
-import { corsHeaders, db, invoke, json, parseBody } from '../_shared/command.ts';
+import { corsHeaders, db, invoke, json, parseBody , requireServiceRole } from '../_shared/command.ts';
 
 type JsonRecord = Record<string, unknown>;
 const now = () => new Date().toISOString();
@@ -85,6 +85,7 @@ async function handleDetail(body: JsonRecord) {
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const roleError = requireServiceRole(request); if (roleError) return roleError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try {
     const body = asRecord(await parseBody(request));

@@ -1,7 +1,8 @@
-import { corsHeaders, json, parseBody, recordMetrics } from '../_shared/command.ts';
+import { corsHeaders, json, parseBody, recordMetrics , requireServiceRole } from '../_shared/command.ts';
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const roleError = requireServiceRole(request); if (roleError) return roleError;
   try {
     const body = await parseBody(request) || {};
     const metrics = { documents_registered: 0, documents_processed: 0, contract_dna_completed: 0, intelligence_extractions: 0 };

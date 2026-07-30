@@ -1,4 +1,4 @@
-import { corsHeaders, db, json, parseBody, recordEvent } from '../_shared/command.ts';
+import { corsHeaders, db, json, parseBody, recordEvent , requireServiceRole } from '../_shared/command.ts';
 import { validateAssignment } from '../_shared/aadp.ts';
 
 type JsonRecord = Record<string, unknown>;
@@ -574,6 +574,7 @@ async function dispatch(ctx: TaskContext) {
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const roleError = requireServiceRole(request); if (roleError) return roleError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try {
     const body = asRecord(await parseBody(request));

@@ -1,4 +1,4 @@
-import { db, invoke, json, parseBody, recordEvent } from '../_shared/command.ts';
+import { db, invoke, json, parseBody, recordEvent , requireServiceRole } from '../_shared/command.ts';
 import { runAadpTask } from '../_shared/aadp.ts';
 
 type JsonRecord = Record<string, unknown>;
@@ -58,6 +58,7 @@ async function finalize(runId: string, assignment: JsonRecord) {
 }
 
 Deno.serve(async (request: Request) => {
+  const roleError = requireServiceRole(request); if (roleError) return roleError;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try {
     const body = asRecord(await parseBody(request));

@@ -38,6 +38,22 @@ export async function requireDashboardAuth(request: Request): Promise<Response |
   return null;
 }
 
+// For internal-only workers (agent-*, aadp-*-adapter, aadp-run-dispatcher,
+// aadp-task-executor, etc). These are only ever meant to be called
+// server-to-server via invoke() above, which authenticates with the
+// service-role key -- never by a browser. requireDashboardAuth() would be
+// wrong here: invoke() doesn't send x-dashboard-password, so it would break
+// the legitimate call chain. Instead this checks that the caller actually
+// used the service-role key, not just any valid key (the public anon key
+// also passes Supabase's platform-level verify_jwt check, since it's a
+// validly-signed JWT too -- it's just signed for the anon role).
+export function requireServiceRole(request: Request): Response | null {
+  const apikey = request.headers.get('apikey') || '';
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+  if (!serviceKey || apikey !== serviceKey) return json({ ok: false, error: 'Forbidden: service-role access only' }, 403);
+  return null;
+}
+
 export function requireEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
