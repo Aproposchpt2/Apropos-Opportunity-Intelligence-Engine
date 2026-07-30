@@ -3,51 +3,54 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 const text=async path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('root index is the procurement intelligence operations center',async()=>{
+test('root is the internal Executive Command Center',async()=>{
   const html=await text('index.html');
-  for(const label of ['Procurement Intelligence Operations Center','MISSION READINESS','MISSION PRE-FLIGHT','MISSION CONFIGURATION','AI PROVIDER CONFIGURATION','PUBLISHER CONFIGURATION','MISSION ESTIMATE','MISSION LAUNCH','LIVE MISSION TIMELINE','COMPLETED MISSIONS','EXECUTIVE ALERTS','BEGIN DAILY OPERATIONS','AGENT STATUS']) assert.match(html,new RegExp(label,'i'));
+  for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','State Operations Context','Authorize an Operation','Active Mission Monitors','NAT-CORP Executive Control Plane','Capability Readiness','Recurring Automation','Action Required','Lifecycle Control','Automation Infrastructure','Operational Notifications'])assert.match(html,new RegExp(label,'i'));
+  assert.match(html,/Internal APROPOS operations/i);assert.match(html,/id="gatePassword"/);assert.match(html,/noindex,nofollow/i);
 });
 
-test('pre-flight exposes required controls and five-step validation',async()=>{
+test('simplified executive launch exposes governed mission controls',async()=>{
   const html=await text('index.html');
-  for(const id of ['missionName','missionType','missionScope','missionOperator','providerSelect','testProviderButton','publisherState','organizationType','publisherSelect','publisherQueue','missionConfidence','readinessStatus','beginButton']) assert.match(html,new RegExp(`id="${id}"`));
-  for(const provider of ['OpenAI','Anthropic','Manual']) assert.match(html,new RegExp(provider));
-  assert.match(html,/id="beginButton"[^>]*disabled/);
+  for(const id of ['eccMissionType','eccMissionName','eccAgent','eccMissionState','eccLaunchForm','eccActiveMissions','eccRecommendation','eccStateInventory','eccSchedules','eccActionRequired','eccHealth'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(html,/AUTHORIZE & EXECUTE/);assert.match(html,/Human authorization remains authoritative/i);
 });
 
-test('mission orchestration enforces validation, maximum batch, estimates, and official record',async()=>{
-  const js=await text('assets/command-center.js');
-  assert.match(js,/maxPublishers:5/);
-  assert.match(js,/state\.selected\.includes\(id\)/);
-  assert.match(js,/state\.selected\.length>=5/);
-  assert.match(js,/provider:state\.provider/);
-  assert.match(js,/publishers:state\.selected/);
-  assert.match(js,/mission_readiness:r\.score/);
-  assert.match(js,/validation:r\.checks/);
-  assert.match(js,/testProvider/);
-  assert.doesNotMatch(js,/if\s*\(.*anthropic.*\).*write/i);
+test('dashboard invokes only password-protected executive command functions',async()=>{
+  const core=await text('assets/executive-core.js');const launch=await text('assets/executive-launch.js');const dashboard=await text('assets/executive-command-center.js');
+  assert.match(core,/x-dashboard-password/);assert.match(core,/command-executive-status/);assert.match(launch,/command-mission-control/);assert.match(dashboard,/15s/i);
 });
 
-test('operations center invokes required command functions',async()=>{
-  const js=await text('assets/command-center.js');
-  for(const name of ['command-begin-daily-operations','command-status','command-resume','command-stop']) assert.match(js,new RegExp(name));
+test('mission workspace provides visual stage monitoring',async()=>{
+  const html=await text('missions/index.html');const js=await text('assets/mission-workspace.js');
+  for(const label of ['Mission Workspace','Execution Stages','Live Activity','Action Required'])assert.match(html,new RegExp(label,'i'));
+  for(const field of ['Current Stage','Progress','Warnings','Failures','Last Activity'])assert.match(js,new RegExp(field,'i'));
+  assert.match(js,/command-mission-status/);assert.match(js,/setInterval\(loadMission,10000\)/);
 });
 
-test('migration creates seven RLS tables',async()=>{
-  const sql=await text('supabase/migrations/20260723230000_command_center.sql');
-  for(const table of ['command_runs','command_jobs','command_events','command_failures','command_metrics','daily_executive_briefs','system_status']){assert.match(sql,new RegExp(`create table if not exists public\\.${table}`));assert.match(sql,new RegExp(`alter table public\\.${table} enable row level security`));}
+test('mission control wires all six governed mission families',async()=>{
+  const js=await text('supabase/functions/command-mission-control/index.ts');
+  for(const key of ['PUBLISHER_DISCOVERY','ACQUISITION_DISCOVERY','BUSINESS_DEVELOPMENT_DISCOVERY','OPPORTUNITY_PARTNER_DISCOVERY','INSTITUTIONAL_BUYER_DISCOVERY','STATE_MISSION'])assert.match(js,new RegExp(key));
+  assert.match(js,/command-aadp-run/);assert.match(js,/command-aadp-publisher-discovery/);assert.match(js,/command-research-discovery/);assert.match(js,/child_mission_auto_authorized:false/);
 });
 
-test('orchestrator owns sequential five-agent progression',async()=>{
-  const shared=await text('supabase/functions/_shared/command.ts');
-  const orchestrator=await text('supabase/functions/command-begin-daily-operations/index.ts');
-  assert.equal((shared.match(/functionName: 'agent-/g)||[]).length,5);
-  assert.match(orchestrator,/for \(const agent of AGENT_SEQUENCE\)/);
-  assert.match(orchestrator,/max_attempts/);
-  assert.match(orchestrator,/idempotencyKey/);
+test('AADP runtime honors operator stop requests between tasks',async()=>{
+  const js=await text('supabase/functions/command-aadp-run/index.ts');const stop=await text('supabase/functions/command-stop/index.ts');
+  assert.match(js,/isStopRequested/);assert.match(js,/finalizeStopped/);assert.match(js,/STOPPED_BY_OPERATOR/);assert.match(js,/OPERATOR_STOP/);
+  assert.match(stop,/pending_tasks_cancelled:true/);assert.match(stop,/state=in\.\(READY,RETRY_PENDING,ASSIGNED\)/);assert.match(stop,/OPERATOR_STOP_REQUESTED/);
+});
+
+test('generalized discovery runtime performs official-source web research and stages review candidates',async()=>{
+  const js=await text('supabase/functions/command-research-discovery/index.ts');const pub=await text('supabase/functions/command-aadp-publisher-discovery/index.ts');
+  assert.match(js,/api\.openai\.com\/v1\/responses/);assert.match(js,/type:'web_search'/);assert.match(js,/command_discovery_candidates/);assert.match(js,/PENDING_REVIEW/);assert.match(js,/human registry review required/i);
+  assert.match(pub,/autonomousResearch/);assert.match(pub,/official_source_verified/);assert.match(pub,/human_review_required:true/);
+});
+
+test('VAR generalized discovery migration creates RLS-protected persistence',async()=>{
+  const sql=await text('supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql');
+  for(const table of ['command_discovery_runs','command_discovery_candidates','business_development_registry','opportunity_partner_registry','institutional_buyer_registry']){assert.match(sql,new RegExp(`create table if not exists public\\.${table}`,'i'));assert.match(sql,new RegExp(`alter table public\\.${table} enable row level security`,'i'));}
 });
 
 test('browser assets contain no server secrets',async()=>{
-  const files=[await text('index.html'),await text('assets/command-center.js'),await text('assets/command-center.css')].join('\n');
+  const files=[await text('index.html'),await text('assets/executive-core.js'),await text('assets/executive-command-center.js'),await text('assets/executive-launch.js'),await text('assets/mission-workspace.js')].join('\n');
   assert.doesNotMatch(files,/service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY/i);
 });
