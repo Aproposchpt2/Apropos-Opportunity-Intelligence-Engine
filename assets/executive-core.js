@@ -4,6 +4,7 @@ const NETLIFY_FUNCTIONS={
   'command-mission-control':'command',
   'command-executive-status':'command-status',
   'command-mission-status':'mission-status',
+  'command-publisher-candidate-review':'candidate-review',
   'command-stop':'stop',
   'command-resume':'resume',
   'provider-health':'provider-health'
