@@ -62,11 +62,14 @@ test('dashboard invokes only password-protected executive command functions',asy
 test('mission workspace provides visual stage monitoring and Publisher Discovery candidate review',async()=>{
   const html=await text('missions/index.html');
   const js=await text('assets/mission-workspace.js');
+  const core=await text('assets/executive-core.js');
   const gateway=await text('netlify/functions/candidate-review.js');
   for(const label of ['Mission Workspace','Execution Stages','Live Activity','Action Required','Candidate Review']) assert.match(html,new RegExp(label,'i'));
   for(const field of ['Current Stage','Progress','Warnings','Failures','Last Activity']) assert.match(js,new RegExp(field,'i'));
   assert.match(js,/command-mission-status/);
-  assert.match(js,/command-publisher-candidate-review/);
+  assert.match(js,/command-aadp-publisher-candidate-review/);
+  assert.match(core,/command-aadp-publisher-candidate-review/);
+  assert.doesNotMatch(js,/invoke\('command-publisher-candidate-review'/);
   assert.match(js,/data-review/);
   assert.match(js,/setInterval\(loadMission,10000\)/);
   assert.match(gateway,/command-aadp-publisher-candidate-review/);

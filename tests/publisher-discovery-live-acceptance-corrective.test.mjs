@@ -7,6 +7,7 @@ const text=async path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 const html=await text('index.html');
 const launch=await text('assets/executive-launch.js');
 const workspace=await text('assets/mission-workspace.js');
+const executiveCore=await text('assets/executive-core.js');
 const missionControl=await text('supabase/functions/command-mission-control/index.ts');
 const discoveryFn=await text('supabase/functions/command-aadp-publisher-discovery/index.ts');
 const reviewFn=await text('supabase/functions/command-aadp-publisher-candidate-review/index.ts');
@@ -74,7 +75,9 @@ test('Mission Workspace provides evidence review before Publisher Registry admis
   assert.match(workspace,/Candidates without verified official-source evidence cannot be approved/);
   assert.match(workspace,/data-review="APPROVE"/);
   assert.match(workspace,/data-review="REJECT"/);
-  assert.match(workspace,/command-publisher-candidate-review/);
+  assert.match(workspace,/command-aadp-publisher-candidate-review/);
+  assert.match(executiveCore,/command-aadp-publisher-candidate-review/);
+  assert.doesNotMatch(workspace,/invoke\('command-publisher-candidate-review'/);
 });
 
 test('Human review is protected and enforces verification and duplicate gates',()=>{
