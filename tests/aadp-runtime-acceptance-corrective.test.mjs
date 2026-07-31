@@ -7,7 +7,8 @@ const runner = fs.readFileSync('supabase/functions/command-aadp-run/index.ts','u
 const executor = fs.readFileSync('supabase/functions/aadp-task-executor-v2/index.ts','utf8');
 const migration = fs.readFileSync('supabase/migrations/20260726210000_aadp_runtime_acceptance_corrective_v1.sql','utf8');
 const html = fs.readFileSync('index.html','utf8');
-const ui = fs.readFileSync('assets/command-center.js','utf8');
+const executive = fs.readFileSync('assets/executive-command-center.js','utf8');
+const workspace = fs.readFileSync('assets/mission-workspace.js','utf8');
 
 test('AOIE task graph enforces language analysis before review', () => {
   const analysis = shared.indexOf("'PROCUREMENT_LANGUAGE_ANALYSIS'");
@@ -78,7 +79,10 @@ test('process projection supports the required display states', () => {
   assert.match(runner, /refreshStageProjection/);
 });
 
-test('Command Center contains AADP process, alerts, and recommendation surfaces', () => {
-  for (const id of ['aadpProcessIndicator','aadpActionNeeded','aadpPublisherRun','aadpRecommendationReport']) assert.match(html, new RegExp(id));
-  for (const name of ['renderAadpProcess','renderAadpAlerts','renderAadpPublisherRun','renderAadpRecommendations']) assert.match(ui, new RegExp(name));
+test('Executive Command Center and Mission Workspace expose AADP evidence and intervention surfaces', () => {
+  for (const id of ['eccAcquisitionOps','eccActionRequired','eccRecommendation','eccHealth']) assert.match(html, new RegExp(id));
+  for (const name of ['renderAcquisition','renderExceptions','renderHealth']) assert.match(executive, new RegExp(name));
+  for (const term of ['Execution Stages','Live Activity','Action Required']) assert.match(fs.readFileSync('missions/index.html','utf8'), new RegExp(term,'i'));
+  assert.match(workspace, /command-mission-status/);
+  assert.match(workspace, /Failures/);
 });
