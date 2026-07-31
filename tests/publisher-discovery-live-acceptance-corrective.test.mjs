@@ -93,6 +93,15 @@ test('Human review is protected and enforces verification and duplicate gates',(
   assert.match(reviewFn,/admitted_by_human_review: true/);
 });
 
+test('Every human candidate decision produces an auditable command event',()=>{
+  assert.match(reviewFn,/recordReviewDecision/);
+  assert.match(reviewFn,/PUBLISHER_DISCOVERY_CANDIDATE_APPROVED/);
+  assert.match(reviewFn,/PUBLISHER_DISCOVERY_CANDIDATE_REJECTED/);
+  assert.match(reviewFn,/decision_source: 'DASHBOARD_HUMAN_REVIEW'/);
+  assert.match(reviewFn,/candidate_id/);
+  assert.match(reviewFn,/publisher_id/);
+});
+
 test('Corrective migration preserves acquisition integrity and least privilege',()=>{
   assert.doesNotMatch(migration,/alter table public\.publisher_assignments[\s\S]*drop not null/i);
   assert.doesNotMatch(migration,/alter table public\.acquisition_runs[\s\S]*drop not null/i);
