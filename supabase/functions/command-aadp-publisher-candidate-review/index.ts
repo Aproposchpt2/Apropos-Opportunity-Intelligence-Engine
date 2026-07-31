@@ -9,6 +9,32 @@ async function auth(request: Request) {
   return serviceError ? await requireDashboardAuth(request) : null;
 }
 
+async function recordReviewDecision(candidate: J, decision: 'APPROVE' | 'REJECT', publisherId: string | null, reviewNotes: string | null) {
+  const discoveryRunId = T(candidate.discovery_run_id);
+  if (!discoveryRunId) return;
+  const discovery = (await db(`publisher_discovery_runs?id=eq.${discoveryRunId}&select=command_run_id`))?.[0];
+  const commandRunId = T(discovery?.command_run_id);
+  if (!commandRunId) return;
+  const approved = decision === 'APPROVE';
+  await recordEvent(
+    commandRunId,
+    null,
+    approved ? 'PUBLISHER_DISCOVERY_CANDIDATE_APPROVED' : 'PUBLISHER_DISCOVERY_CANDIDATE_REJECTED',
+    approved ? 'Publisher candidate approved by human review and admitted to Publisher Registry' : 'Publisher candidate rejected by human review',
+    {
+      discovery_run_id: discoveryRunId,
+      candidate_id: T(candidate.id),
+      publisher_name: T(candidate.publisher_name),
+      publisher_id: publisherId,
+      decision,
+      decision_source: 'DASHBOARD_HUMAN_REVIEW',
+      review_notes: reviewNotes,
+      official_source_verified: candidate.official_source_verified === true,
+      duplicate_status: T(candidate.duplicate_status) || null
+    }
+  ).catch(() => null);
+}
+
 async function finalizeDiscovery(discoveryRunId: string) {
   const discovery = (await db(`publisher_discovery_runs?id=eq.${discoveryRunId}&select=*`))?.[0];
   if (!discovery) return { completed: false, discovery: null };
@@ -83,6 +109,7 @@ Deno.serve(async (request: Request) => {
         method: 'PATCH',
         body: JSON.stringify({ review_status: 'REJECTED', review_notes: reviewNotes, reviewed_at: new Date().toISOString() })
       });
+      await recordReviewDecision(updated?.[0] ?? candidate, 'REJECT', null, reviewNotes);
       const state = await finalizeDiscovery(candidate.discovery_run_id);
       return json({ candidate: updated?.[0] ?? candidate, registry_admission: 'REJECTED', discovery_run_complete: state.completed });
     }
@@ -134,6 +161,7 @@ Deno.serve(async (request: Request) => {
       body: JSON.stringify({ review_status: 'APPROVED_ADMITTED', review_notes: reviewNotes, reviewed_at: new Date().toISOString(), admitted_publisher_id: admitted.id })
     });
 
+    await recordReviewDecision(updated?.[0] ?? candidate, 'APPROVE', admitted.id, reviewNotes);
     const state = await finalizeDiscovery(candidate.discovery_run_id);
     return json({ candidate: updated?.[0] ?? candidate, registry_admission: 'APPROVED', publisher_id: admitted.id, discovery_run_complete: state.completed });
   } catch (error) {
