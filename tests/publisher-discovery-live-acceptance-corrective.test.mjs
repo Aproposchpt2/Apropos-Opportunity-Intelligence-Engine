@@ -40,6 +40,25 @@ test('Discovery service enforces scope and publisher types before creating a new
   assert.match(discoveryFn,/human_review_before_registry_admission_required:true/);
 });
 
+test('Autonomous Publisher Discovery is time-bounded and fails closed instead of remaining RUNNING forever',()=>{
+  assert.match(discoveryFn,/RESEARCH_TIMEOUT_MS=60000/);
+  assert.match(discoveryFn,/AbortSignal\.timeout\(RESEARCH_TIMEOUT_MS\)/);
+  assert.match(discoveryFn,/gpt-5\.6-terra/);
+  assert.match(discoveryFn,/reasoning:\{effort:'low'\}/);
+  assert.match(discoveryFn,/search_context_size:'low'/);
+  assert.match(discoveryFn,/Publisher research provider timed out/);
+  assert.match(discoveryFn,/status:'failed'/);
+  assert.match(discoveryFn,/current_stage:'RESEARCH_FAILED'/);
+  assert.match(discoveryFn,/action_required:true/);
+  assert.match(discoveryFn,/MISSION_FAILURE/);
+});
+
+test('Publisher Discovery fails closed when research returns no usable candidates',()=>{
+  assert.match(discoveryFn,/Publisher research completed without candidate records/);
+  assert.match(discoveryFn,/NO_CANDIDATES_FOUND/);
+  assert.match(discoveryFn,/Publisher research returned no candidates; operator review or retry required/);
+});
+
 test('Discovery candidates are staged outside authoritative Publisher Registry',()=>{
   assert.match(migration,/create table if not exists public\.publisher_discovery_candidates/);
   assert.match(migration,/human_review_before_registry_admission_required/);
