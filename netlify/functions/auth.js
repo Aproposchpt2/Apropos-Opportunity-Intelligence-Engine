@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+// EXECUTIVE_AUTH_HASH is provisioned as a secret Netlify runtime variable.
 function jsonResponse(status, body) {
   return new Response(JSON.stringify(body), {
     status,
