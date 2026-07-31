@@ -7,7 +7,8 @@ const runner = fs.readFileSync('supabase/functions/command-aadp-run/index.ts','u
 const executor = fs.readFileSync('supabase/functions/aadp-task-executor-v2/index.ts','utf8');
 const migration = fs.readFileSync('supabase/migrations/20260726210000_aadp_runtime_acceptance_corrective_v1.sql','utf8');
 const html = fs.readFileSync('index.html','utf8');
-const ui = fs.readFileSync('assets/command-center.js','utf8');
+const executive = fs.readFileSync('assets/executive-command-center.js','utf8');
+const workspace = fs.readFileSync('assets/mission-workspace.js','utf8');
 
 test('AOIE task graph enforces language analysis before review', () => {
   const analysis = shared.indexOf("'PROCUREMENT_LANGUAGE_ANALYSIS'");
@@ -31,8 +32,10 @@ test('semantic completion is database-authoritative', () => {
   assert.match(migration, /v_qualified = v_qualified_upserts/);
   assert.match(migration, /v_qualified = v_analyses/);
   assert.match(migration, /v_analyses = v_reviewed/);
-  assert.match(runner, /semanticValidation/);
-  assert.match(runner, /semantic\.valid === true/);
+  assert.match(runner, /rpc\/aadp_validate_semantic_completion/);
+  assert.match(runner, /async function semantic/);
+  assert.match(runner, /sem\.valid===true/);
+  assert.match(runner, /semantic_completion:sem/);
 });
 
 test('version governance distinguishes required relationships', () => {
@@ -75,10 +78,14 @@ test('process projection supports the required display states', () => {
   for (const state of ['NOT STARTED','QUEUED','IN PROGRESS','COMPLETED','COMPLETED WITH WARNINGS','ACTION NEEDED','FAILED','CANCELLED']) {
     assert.match(migration, new RegExp(state));
   }
-  assert.match(runner, /refreshStageProjection/);
+  assert.match(runner, /async function stageProjection/);
+  assert.match(runner, /await stageProjection\(runId,a\)/);
 });
 
-test('Command Center contains AADP process, alerts, and recommendation surfaces', () => {
-  for (const id of ['aadpProcessIndicator','aadpActionNeeded','aadpPublisherRun','aadpRecommendationReport']) assert.match(html, new RegExp(id));
-  for (const name of ['renderAadpProcess','renderAadpAlerts','renderAadpPublisherRun','renderAadpRecommendations']) assert.match(ui, new RegExp(name));
+test('Executive Command Center and Mission Workspace expose AADP evidence and intervention surfaces', () => {
+  for (const id of ['eccAcquisitionOps','eccActionRequired','eccRecommendation','eccHealth']) assert.match(html, new RegExp(id));
+  for (const name of ['renderAcquisition','renderExceptions','renderHealth']) assert.match(executive, new RegExp(name));
+  for (const term of ['Execution Stages','Live Activity','Action Required']) assert.match(fs.readFileSync('missions/index.html','utf8'), new RegExp(term,'i'));
+  assert.match(workspace, /command-mission-status/);
+  assert.match(workspace, /Failures/);
 });

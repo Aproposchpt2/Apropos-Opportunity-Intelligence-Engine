@@ -58,9 +58,10 @@ test('manual intervention is emitted as an auditable ACTION NEEDED event', () =>
 test('state publisher discovery is separate from recurring acquisition', () => {
   assert.match(discovery, /publisher_discovery_runs/);
   assert.match(discovery, /PUBLISHER_DISCOVERY_STARTED/);
-  assert.match(discovery, /PROJECT_OWNER_APPROVAL_OR_EXCEPTION_REVIEW/);
+  assert.match(discovery, /CANDIDATE_REVIEW/);
   assert.match(discovery, /PUBLISHER_RESULTS_PRESENTED/);
   assert.match(discovery, /ACTION_NEEDED/);
+  assert.match(discovery, /human_review_required:true/);
   assert.doesNotMatch(discovery, /acquisition_raw_records/);
 });
 
