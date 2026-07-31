@@ -6,7 +6,7 @@ const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').repla
 const num=v=>Number(v||0).toLocaleString();
 function stateLabel(s){return ({OPERATIONAL:'Operational',ONBOARDING:'Onboarding',MISSION_RUNNING:'Mission Running',ACTION_REQUIRED:'Action Required',UNEVALUATED:'Unevaluated',PAUSED:'Paused'})[s]||s||'Unevaluated'}
 function execLabel(r){const s=String(r.status||'').toLowerCase();if(r.action_required)return'Action Required';if(s==='completed'&&r.warning_count)return'Completed with Warnings';return s.replaceAll('_',' ').replace(/\b\w/g,x=>x.toUpperCase())||'Unknown'}
-async function eccLoad(){try{ECC.data=await invoke('command-executive-status',{});eccRender();}catch(e){console.error(e)}}
+async function eccLoad(){try{const data=await invoke('command-executive-status',{});try{data.publisher_discovery=await invoke('command-publisher-discovery-status',{})}catch(e){console.error('Publisher Discovery status projection failed:',e)}ECC.data=data;eccRender();}catch(e){console.error(e)}}
 function healthCard(label,item={}){return `<article><span>${esc(label)}</span><strong>${esc(item.status||'UNKNOWN')}</strong><small>${esc(item.source||'No evidence source')} · ${when(item.observed_at)}</small>${item.detail?`<small>${esc(item.detail)}</small>`:''}</article>`}
 function eccRender(){
   const d=ECC.data;if(!d)return;
