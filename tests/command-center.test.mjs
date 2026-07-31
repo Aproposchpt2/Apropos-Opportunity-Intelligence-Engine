@@ -5,7 +5,7 @@ const text=async path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('root is the internal Executive Command Center',async()=>{
   const html=await text('index.html');
-  for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','State Operations Context','Authorize & Execute','Active Mission Monitors','NAT-CORP Executive Control Plane','Capability Readiness','Recurring Automation','Action Required','Lifecycle Control','Automation Infrastructure','Operational Notifications'])assert.match(html,new RegExp(label,'i'));
+  for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','State Operations Context','Authorize & Execute','Active Mission Monitors','OTF OPERATIONS','Capability Readiness','Recurring Automation','Action Required','Lifecycle Control','Automation Infrastructure','Operational Notifications'])assert.match(html,new RegExp(label,'i'));
   assert.match(html,/Internal APROPOS operations/i);assert.match(html,/id="gatePassword"/);assert.match(html,/noindex,nofollow/i);
 });
 
@@ -64,7 +64,7 @@ test('generalized and publisher discovery perform autonomous official-source res
 
 test('VAR generalized discovery migration creates RLS-protected persistence',async()=>{
   const sql=await text('supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql');
-  for(const table of ['command_discovery_runs','command_discovery_candidates','business_development_registry','opportunity_partner_registry','institutional_buyer_registry']){assert.match(sql,new RegExp(`create table if not exists public\\.${table}`,'i'));assert.match(sql,new RegExp(`alter table public\\.${table} enable row level security`,'i'));}
+  for(const table of ['command_discovery_runs','command_discovery_candidates','business_development_registry','opportunity_partner_registry','institutional_buyer_registry']){assert.match(sql,new RegExp(`create table if not exists public\\.${table}`,'i'));assert.match(sql,new RegExp(`alter table public\\.${table} enable row level security`,'i));}
 });
 
 test('browser assets contain no server secrets',async()=>{
