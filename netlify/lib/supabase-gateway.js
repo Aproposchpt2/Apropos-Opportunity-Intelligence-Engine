@@ -1,5 +1,5 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+const GATEWAY_KEY = process.env.SUPABASE_ANON_KEY;
 
 function response(statusCode, body) {
   return {
@@ -18,7 +18,7 @@ function response(statusCode, body) {
 async function proxyToSupabase(event, functionName) {
   if (event.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
-  if (!SUPABASE_URL || !SERVICE_KEY) return response(500, { error: 'Server gateway configuration incomplete' });
+  if (!SUPABASE_URL || !GATEWAY_KEY) return response(500, { error: 'Server gateway configuration incomplete' });
 
   const dashboardPassword = event.headers['x-dashboard-password'] || event.headers['X-Dashboard-Password'] || '';
   if (!dashboardPassword) return response(401, { error: 'Unauthorized' });
@@ -27,8 +27,8 @@ async function proxyToSupabase(event, functionName) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'apikey': SERVICE_KEY,
-      'Authorization': `Bearer ${SERVICE_KEY}`,
+      'apikey': GATEWAY_KEY,
+      'Authorization': `Bearer ${GATEWAY_KEY}`,
       'x-dashboard-password': dashboardPassword
     },
     body: event.body || '{}'
@@ -42,15 +42,15 @@ async function proxyToSupabase(event, functionName) {
 }
 
 async function verifyDashboard(event) {
-  if (!SUPABASE_URL || !SERVICE_KEY) return { ok: false, status: 500, error: 'Server gateway configuration incomplete' };
+  if (!SUPABASE_URL || !GATEWAY_KEY) return { ok: false, status: 500, error: 'Server gateway configuration incomplete' };
   const dashboardPassword = event.headers['x-dashboard-password'] || event.headers['X-Dashboard-Password'] || '';
   if (!dashboardPassword) return { ok: false, status: 401, error: 'Unauthorized' };
   const upstream = await fetch(`${SUPABASE_URL}/functions/v1/command-executive-status`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'apikey': SERVICE_KEY,
-      'Authorization': `Bearer ${SERVICE_KEY}`,
+      'apikey': GATEWAY_KEY,
+      'Authorization': `Bearer ${GATEWAY_KEY}`,
       'x-dashboard-password': dashboardPassword
     },
     body: '{}'
