@@ -1,5 +1,5 @@
 const ECC={data:null,state:'ALL',timer:null};
-const q=id=>document.getElementById(id); const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+const q=id=>document.getElementById(id); const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const when=v=>v?new Date(v).toLocaleString():'—';
 const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').replaceAll(' ','-')}`;
 function stateLabel(s){return ({OPERATIONAL:'Operational',ONBOARDING:'Onboarding',MISSION_RUNNING:'Mission Running',ACTION_REQUIRED:'Action Required',UNEVALUATED:'Not In Inventory',PAUSED:'Paused'})[s]||s||'Not In Inventory'}
