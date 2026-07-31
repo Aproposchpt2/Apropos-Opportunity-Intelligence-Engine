@@ -52,7 +52,7 @@ test('mission control wires all six governed mission families',async()=>{
 
 test('AADP runtime honors operator stop requests between tasks',async()=>{
   const js=await text('supabase/functions/command-aadp-run/index.ts');const stop=await text('supabase/functions/command-stop/index.ts');
-  assert.match(js,/isStopRequested/);assert.match(js,/finalizeStopped/);assert.match(js,/STOPPED_BY_OPERATOR/);assert.match(js,/OPERATOR_STOP/);
+  assert.match(js,/async function stopped/);assert.match(js,/finalizeStop/);assert.match(js,/STOPPED_BY_OPERATOR/);assert.match(js,/OPERATOR_STOP/);
   assert.match(stop,/pending_tasks_cancelled:true/);assert.match(stop,/state=in\.\(READY,RETRY_PENDING,ASSIGNED\)/);assert.match(stop,/OPERATOR_STOP_REQUESTED/);
 });
 
