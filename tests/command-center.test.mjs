@@ -56,7 +56,7 @@ test('dashboard invokes only password-protected executive command functions',asy
   assert.match(core,/x-dashboard-password/);
   assert.match(core,/command-executive-status/);
   assert.match(launch,/command-mission-control/);
-  assert.match(dashboard,/15s/i);
+  assert.match(dashboard,/setInterval\(eccLoad,15000\)/);
 });
 
 test('mission workspace provides visual stage monitoring and Publisher Discovery candidate review',async()=>{
