@@ -37,11 +37,12 @@ test('dashboard invokes only password-protected executive command functions',asy
   assert.match(core,/x-dashboard-password/);assert.match(core,/command-executive-status/);assert.match(launch,/command-mission-control/);assert.match(dashboard,/15s/i);
 });
 
-test('mission workspace provides visual stage monitoring',async()=>{
-  const html=await text('missions/index.html');const js=await text('assets/mission-workspace.js');
-  for(const label of ['Mission Workspace','Execution Stages','Live Activity','Action Required'])assert.match(html,new RegExp(label,'i'));
+test('mission workspace provides visual stage monitoring and Publisher Discovery candidate review',async()=>{
+  const html=await text('missions/index.html');const js=await text('assets/mission-workspace.js');const gateway=await text('netlify/functions/candidate-review.js');
+  for(const label of ['Mission Workspace','Execution Stages','Live Activity','Action Required','Candidate Review'])assert.match(html,new RegExp(label,'i'));
   for(const field of ['Current Stage','Progress','Warnings','Failures','Last Activity'])assert.match(js,new RegExp(field,'i'));
-  assert.match(js,/command-mission-status/);assert.match(js,/setInterval\(loadMission,10000\)/);
+  assert.match(js,/command-mission-status/);assert.match(js,/command-publisher-candidate-review/);assert.match(js,/data-review/);assert.match(js,/setInterval\(loadMission,10000\)/);
+  assert.match(gateway,/command-aadp-publisher-candidate-review/);
 });
 
 test('mission control wires all six governed mission families',async()=>{
