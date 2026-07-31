@@ -50,7 +50,7 @@ jobs:
           grep -q "ACQUISITION_DISCOVERY" supabase/functions/command-mission-control/index.ts
           grep -q "STATE_MISSION" supabase/functions/command-mission-control/index.ts
           grep -q "command-research-discovery" supabase/functions/command-mission-control/index.ts
-          grep -q "isStopRequested" supabase/functions/command-aadp-run/index.ts
+          grep -q "finalizeStop" supabase/functions/command-aadp-run/index.ts
       - name: Validate VAR discovery schema
         run: |
           test -f supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
