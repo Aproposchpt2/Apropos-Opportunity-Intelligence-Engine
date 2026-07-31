@@ -8,6 +8,7 @@ const NETLIFY_FUNCTIONS={
 const EDGE_FUNCTIONS=new Set([
   'command-mission-control',
   'command-executive-status',
+  'command-publisher-discovery-status',
   'command-mission-status',
   'command-aadp-publisher-candidate-review',
   'command-stop',
