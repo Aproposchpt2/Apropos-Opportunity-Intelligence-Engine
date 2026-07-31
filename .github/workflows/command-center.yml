@@ -22,7 +22,7 @@ jobs:
           grep -q "Executive Command Center" index.html
           grep -q "State Operations Context" index.html
           grep -q "Active Mission Monitors" index.html
-          grep -q "NAT-CORP Executive Control Plane" index.html
+          grep -q "OTF OPERATIONS" index.html
           grep -q "Operational Notifications" index.html
       - name: Validate browser JavaScript
         run: |
