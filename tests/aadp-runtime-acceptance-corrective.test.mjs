@@ -32,8 +32,10 @@ test('semantic completion is database-authoritative', () => {
   assert.match(migration, /v_qualified = v_qualified_upserts/);
   assert.match(migration, /v_qualified = v_analyses/);
   assert.match(migration, /v_analyses = v_reviewed/);
-  assert.match(runner, /semanticValidation/);
-  assert.match(runner, /semantic\.valid === true/);
+  assert.match(runner, /rpc\/aadp_validate_semantic_completion/);
+  assert.match(runner, /async function semantic/);
+  assert.match(runner, /sem\.valid===true/);
+  assert.match(runner, /semantic_completion:sem/);
 });
 
 test('version governance distinguishes required relationships', () => {
@@ -76,7 +78,8 @@ test('process projection supports the required display states', () => {
   for (const state of ['NOT STARTED','QUEUED','IN PROGRESS','COMPLETED','COMPLETED WITH WARNINGS','ACTION NEEDED','FAILED','CANCELLED']) {
     assert.match(migration, new RegExp(state));
   }
-  assert.match(runner, /refreshStageProjection/);
+  assert.match(runner, /async function stageProjection/);
+  assert.match(runner, /await stageProjection\(runId,a\)/);
 });
 
 test('Executive Command Center and Mission Workspace expose AADP evidence and intervention surfaces', () => {
