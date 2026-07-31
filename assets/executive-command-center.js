@@ -1,5 +1,5 @@
 const ECC={data:null,state:'ALL',timer:null};
-const q=id=>document.getElementById(id); const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const q=id=>document.getElementById(id); const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 const when=v=>v?new Date(v).toLocaleString():'—';
 const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').replaceAll(' ','-')}`;
 function stateLabel(s){return ({OPERATIONAL:'Operational',ONBOARDING:'Onboarding',MISSION_RUNNING:'Mission Running',ACTION_REQUIRED:'Action Required',UNEVALUATED:'Not In Inventory',PAUSED:'Paused'})[s]||s||'Not In Inventory'}
@@ -19,7 +19,7 @@ function eccRender(){const d=ECC.data;if(!d)return; const states=d.states||[]; c
  const attention=(d.attention_runs||[]).filter(r=>!selected||r.state_code===selected);q('eccActionRequired').innerHTML=attention.length?attention.map(missionCard).join(''):'<p class="ecc-empty">No mission exceptions require operator action.</p>';
  const lc=(d.lifecycle_events||[]);q('eccLifecycle').innerHTML=`<div class="ecc-lifecycle-grid"><article><span>Verification Required</span><strong>${Number(totals.lifecycle_verification_required||0)}</strong></article><article><span>Recent Evaluations</span><strong>${lc.length}</strong></article><article><span>Apply Mode</span><strong>INACTIVE</strong></article></div><p>Lifecycle intelligence is observable. Historical retention and current NAT-CORP delivery remain protected.</p>`;
  const sys=d.system||{};q('eccHealth').innerHTML=[['Database','Connected'],['Command Runtime',sys.current_execution_state||'Idle'],['Connector Health',sys.connector_health?.overall||sys.connector_health?.status||'Unknown'],['Scheduler',(d.schedules||[]).some(s=>s.enabled)?'Enabled':'Disabled'],['Lifecycle Apply','Inactive'],['NAT-CORP OTF','Connected']].map(([a,b])=>`<article><span>${a}</span><strong>${esc(b)}</strong></article>`).join('');
- renderOTF(d.otf||{});
+ if(q('eccOtfKpis'))renderOTF(d.otf||{});
 }
 function renderOTF(otf){const k=otf.kpis||{};const cards=[['Nomination Ready',k.nomination_ready],['Enrichment Required',k.enrichment_required],['Business Search',k.discovery_running],['Selected Businesses',k.selected_businesses],['Outreach Pending',k.outreach_pending],['Awaiting Response',k.awaiting_response],['Interested',k.interested],['Analyze Fit',k.analyze_fit_complete],['Report Ready',k.reports_ready],['Repository Members',k.active_repository_members],['Subscription MRR',`$${Number(k.subscription_mrr||0).toFixed(2)}`],['OTF VAR',otf.exceptions?.length||0]];
  q('eccOtfKpis').innerHTML=cards.map(([a,b])=>`<article><span>${a}</span><strong>${typeof b==='number'?b.toLocaleString():esc(b)}</strong></article>`).join('');
