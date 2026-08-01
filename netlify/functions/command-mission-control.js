@@ -1,9 +1,9 @@
-const { randomUUID } = require('node:crypto');
-const { response, parseBody, requireDashboardAuth, db, header } = require('../lib/native-runtime');
+import { randomUUID } from 'node:crypto';
+import { response, parseBody, requireDashboardAuth, db, header } from './_shared/native-runtime.js';
 
 const now = () => new Date().toISOString();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
@@ -74,15 +74,22 @@ exports.handler = async (event) => {
     const dashboardPassword = header(event, 'x-dashboard-password');
     if (!host) throw new Error('Netlify host context unavailable.');
 
-    const workerResponse = await fetch(`https://${host}/.netlify/functions/command-acquisition-worker-background`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-dashboard-password': dashboardPassword
-      },
-      body: JSON.stringify({ command_run_id: run.id, state_code: stateCode, publisher_scope: publisherScope }),
-      signal: AbortSignal.timeout(10000)
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let workerResponse;
+    try {
+      workerResponse = await fetch(`https://${host}/.netlify/functions/command-acquisition-worker-background`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-dashboard-password': dashboardPassword
+        },
+        body: JSON.stringify({ command_run_id: run.id, state_code: stateCode, publisher_scope: publisherScope }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!workerResponse.ok && workerResponse.status !== 202) {
       const detail = await workerResponse.text();
