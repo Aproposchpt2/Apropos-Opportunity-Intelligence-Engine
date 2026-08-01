@@ -1,26 +1,45 @@
 let dashboardPassword=sessionStorage.getItem('apieDashboardPassword')||'';
 let statusTransportFailures=0;
 let statusCircuitUntil=0;
-const NETLIFY_FUNCTIONS={auth:'auth','provider-health':'provider-health'};
-const EDGE_FUNCTIONS=new Set([
-  'command-mission-control','command-acquisition-mission','command-automated-task','command-executive-status',
-  'command-publisher-discovery-status','command-publisher-options','command-mission-status',
-  'command-aadp-publisher-candidate-review','command-stop','command-resume'
-]);
-function runtimeConfig(){return window.AP_COMMAND_CONFIG||{}}
+const NETLIFY_FUNCTIONS={
+  auth:'auth',
+  'provider-health':'provider-health',
+  'command-mission-control':'command-mission-control',
+  'command-acquisition-mission':'command-acquisition-mission',
+  'command-automated-task':'command-automated-task',
+  'command-executive-status':'command-executive-status',
+  'command-publisher-discovery-status':'command-publisher-discovery-status',
+  'command-publisher-options':'command-publisher-options',
+  'command-mission-status':'mission-status',
+  'command-aadp-publisher-candidate-review':'candidate-review',
+  'command-stop':'stop',
+  'command-resume':'resume'
+};
 function dashboardHeaders(){return {'Content-Type':'application/json','x-dashboard-password':dashboardPassword}}
-function edgeHeaders(){const cfg=runtimeConfig();return {...dashboardHeaders(),apikey:cfg.anonKey||'',Authorization:`Bearer ${cfg.anonKey||''}`}}
 function statusCircuitOpen(name){return name==='command-executive-status'&&Date.now()<statusCircuitUntil}
 function recordTransportSuccess(name){if(name==='command-executive-status'){statusTransportFailures=0;statusCircuitUntil=0}}
 function recordTransportFailure(name){if(name!=='command-executive-status')return;statusTransportFailures++;statusCircuitUntil=Date.now()+Math.min(60000,15000*Math.max(1,statusTransportFailures))}
 async function invoke(name,payload={}){
   if(statusCircuitOpen(name))throw new Error('Executive status temporarily paused after transport failure');
-  let url,headers;
-  if(EDGE_FUNCTIONS.has(name)){const cfg=runtimeConfig();if(!cfg.supabaseUrl||!cfg.anonKey)throw new Error('Executive runtime configuration unavailable.');url=`${cfg.supabaseUrl}/functions/v1/${name}`;headers=edgeHeaders()}
-  else{const endpoint=NETLIFY_FUNCTIONS[name];if(!endpoint)throw new Error(`Unsupported Executive operation: ${name}`);url=`/.netlify/functions/${endpoint}`;headers=dashboardHeaders()}
-  let response;try{response=await fetch(url,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)})}catch(error){recordTransportFailure(name);throw new Error(`${name} transport unavailable${error?.name==='TimeoutError'?' (timeout)':''}`)}
+  const endpoint=NETLIFY_FUNCTIONS[name];
+  if(!endpoint)throw new Error(`Unsupported Executive operation: ${name}`);
+  let response;
+  try{
+    response=await fetch(`/.netlify/functions/${endpoint}`,{
+      method:'POST',
+      headers:dashboardHeaders(),
+      body:JSON.stringify(payload),
+      signal:AbortSignal.timeout(30000)
+    });
+  }catch(error){
+    recordTransportFailure(name);
+    throw new Error(`${name} transport unavailable${error?.name==='TimeoutError'?' (timeout)':''}`);
+  }
   if(response.status===401){dashboardPassword='';sessionStorage.removeItem('apieDashboardPassword');showGate('Authorization required.');throw new Error('Unauthorized')}
-  const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status>=500)recordTransportFailure(name);throw new Error(data.error||data.message||`${name} failed (${response.status})`)}recordTransportSuccess(name);return data
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok){if(response.status>=500)recordTransportFailure(name);throw new Error(data.error||data.message||`${name} failed (${response.status})`)}
+  recordTransportSuccess(name);
+  return data;
 }
 function showGate(error=''){document.getElementById('gateOverlay').classList.add('gate-visible');document.getElementById('gateError').textContent=error}
 function hideGate(){document.getElementById('gateOverlay').classList.remove('gate-visible');window.dispatchEvent(new Event('apie:authenticated'))}
