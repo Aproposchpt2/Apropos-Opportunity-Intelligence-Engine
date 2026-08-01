@@ -29,6 +29,7 @@ function publisherName(r){
 function stateName(r){return r.state_name||r.state_code||'ALL';}
 function instanceId(r){return r.task_force_instance_id||r.instance_id||`TF-${String(r.id||'UNKNOWN').slice(0,12).toUpperCase()}`;}
 function records(r,key,fallback=0){return r[key]??r.execution_evidence?.[key]??r.result?.[key]??fallback;}
+function blockerReason(r){return r.result_summary||r.blocker_reason||r.error_message||r.execution_evidence?.error||'';}
 function elapsed(r){
   const start=ms(r.started_at||r.created_at),end=ms(r.completed_at||r.last_activity_at||r.updated_at)||Date.now();
   if(!start)return'—';
@@ -49,9 +50,11 @@ function taskForceCard(r){
   const rejected=records(r,'records_rejected',records(r,'failure_count',0));
   const task=String(r.mission_type_key||r.mission_name||'TASK FORCE').replaceAll('_',' ');
   const heading=`${task} STATE: ${stateName(r)} PUBLISHER: ${publisherName(r)}`;
+  const reason=blockerReason(r);
+  const reasonMarkup=complete&&reason?`<div class="ecc-result-reason"><span>${result==='BLOCKED'?'Blocker':'Result Detail'}</span><b>${esc(reason)}</b></div>`:'';
   const details=complete
-    ?`<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>`
-    :`<div class="ecc-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div><div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Progress<b>${pct}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
+    ?`<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>${reasonMarkup}`
+    :`<progress class="ecc-progress" max="100" value="${pct}" aria-label="Task progress">${pct}%</progress><div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Progress<b>${pct}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
   return`<article class="ecc-task-force-card ${cls(result)}"><header><div><small>TASK FORCE INSTANCE · ${esc(instanceId(r))}</small><h3>${esc(heading)}</h3></div><span class="status-pill ${cls(result)}">${esc(result)}</span></header>${details}<a class="ecc-report-link" href="/missions/?id=${encodeURIComponent(r.id)}">VIEW REPORT</a></article>`;
 }
 
