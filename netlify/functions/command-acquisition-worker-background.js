@@ -1,5 +1,5 @@
-const { createHash } = require('node:crypto');
-const { response, parseBody, requireDashboardAuth, db } = require('../lib/native-runtime');
+import { createHash } from 'node:crypto';
+import { response, parseBody, requireDashboardAuth, db } from './_shared/native-runtime.js';
 
 const hash = value => createHash('sha256').update(String(value)).digest('hex');
 const now = () => new Date().toISOString();
@@ -13,7 +13,7 @@ function recordsFromPayload(payload) {
   return [payload];
 }
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
 
@@ -53,7 +53,14 @@ exports.handler = async (event) => {
       const acquisitionRun = created?.[0];
       try {
         if (!endpoint) throw new Error('Publisher has no acquisition endpoint');
-        const upstream = await fetch(endpoint, { headers: { Accept: 'application/json,text/html;q=0.9,*/*;q=0.8', 'User-Agent': 'APROPOS-APIE/1.0' }, signal: AbortSignal.timeout(25000) });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 25000);
+        let upstream;
+        try {
+          upstream = await fetch(endpoint, { headers: { Accept: 'application/json,text/html;q=0.9,*/*;q=0.8', 'User-Agent': 'APROPOS-APIE/1.0' }, signal: controller.signal });
+        } finally {
+          clearTimeout(timeout);
+        }
         if (!upstream.ok) throw new Error(`Publisher endpoint returned HTTP ${upstream.status}`);
         const contentType = upstream.headers.get('content-type') || '';
         const text = await upstream.text();
