@@ -1,6 +1,6 @@
-const { response, parseBody, requireDashboardAuth, db } = require('../lib/native-runtime');
+import { response, parseBody, requireDashboardAuth, db } from './_shared/native-runtime.js';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
@@ -8,7 +8,6 @@ exports.handler = async (event) => {
   try {
     const stateCode = String(parseBody(event).state_code || '').trim().toUpperCase();
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
-
     const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&select=id,publisher_name,state_code,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,last_verified_at&order=publisher_name.asc`);
     const publishers = (rows || []).filter(p => String(p.publisher_name || '').trim()).map(p => ({
       publisher_id: p.id,
@@ -23,7 +22,6 @@ exports.handler = async (event) => {
       last_verified_at: p.last_verified_at,
       selectable: Boolean(p.search_endpoint || p.procurement_website || p.official_website)
     }));
-
     return response(200, { state_code: stateCode, publishers });
   } catch (error) {
     console.error('command-publisher-options failed', error);
