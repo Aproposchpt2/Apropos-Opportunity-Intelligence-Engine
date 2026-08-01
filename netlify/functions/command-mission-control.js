@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { response, parseBody, requireDashboardAuth, db, header } from './_shared/native-runtime.js';
 
 const now = () => new Date().toISOString();
+const STATIC_AGENTS = Object.freeze({
+  ACQUISITION_DISCOVERY: 'Acquisition Operations'
+});
 
 export const handler = async (event) => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
@@ -12,22 +15,29 @@ export const handler = async (event) => {
     const body = parseBody(event);
     const missionType = String(body.mission_type_key || '').trim().toUpperCase();
     const stateCode = String(body.state_code || '').trim().toUpperCase();
-    const agent = String(body.assigned_agent || '').trim();
-    const publisherScope = String(body.publisher_scope || body.publisher_id || 'ALL').trim() || 'ALL';
+    const publisherScope = String(body.publisher_scope || 'ALL').trim().toUpperCase() || 'ALL';
+    const publisherId = body.publisher_id ? String(body.publisher_id).trim() : null;
 
-    if (!missionType || !/^[A-Z]{2}$/.test(stateCode) || !agent) {
-      return response(400, { error: 'Task, State, and Agent are required.' });
+    if (!missionType || !/^[A-Z]{2}$/.test(stateCode)) {
+      return response(400, { error: 'Task and State are required.' });
     }
     if (missionType !== 'ACQUISITION_DISCOVERY') {
       return response(409, { error: `${missionType} does not yet have a native Netlify runtime adapter.`, code: 'NETLIFY_RUNTIME_ADAPTER_REQUIRED' });
     }
+    if (!['ALL', 'SINGLE'].includes(publisherScope)) {
+      return response(400, { error: 'publisher_scope must be ALL or SINGLE.' });
+    }
+    if (publisherScope === 'SINGLE' && !publisherId) {
+      return response(400, { error: 'publisher_id is required when publisher_scope is SINGLE.' });
+    }
 
+    const agent = STATIC_AGENTS[missionType];
     const missionName = String(body.mission_name || `${stateCode} — Acquisition Discovery`).trim();
     const createdAt = now();
     const runRows = await db('command_runs', {
       method: 'POST',
       body: JSON.stringify({
-        idempotency_key: `ecc:${missionType}:${stateCode}:${randomUUID()}`,
+        idempotency_key: `ecc:${missionType}:${stateCode}:${publisherScope}:${publisherId || 'ALL'}:${randomUUID()}`,
         status: 'queued',
         current_stage: 'NETLIFY_EXECUTION_QUEUED',
         aadp_state: 'QUEUED',
@@ -43,7 +53,9 @@ export const handler = async (event) => {
           source: 'EXECUTIVE_COMMAND_CENTER',
           runtime: 'NETLIFY_NATIVE',
           operator_authorized: true,
-          publisher_scope: publisherScope
+          publisher_scope: publisherScope,
+          publisher_id: publisherId,
+          assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION'
         }
       })
     });
@@ -64,7 +76,9 @@ export const handler = async (event) => {
         mission_config: {
           source: 'EXECUTIVE_COMMAND_CENTER',
           runtime: 'NETLIFY_NATIVE',
-          publisher_scope: publisherScope
+          publisher_scope: publisherScope,
+          publisher_id: publisherId,
+          assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION'
         }
       })
     });
@@ -84,7 +98,12 @@ export const handler = async (event) => {
           'Content-Type': 'application/json',
           'x-dashboard-password': dashboardPassword
         },
-        body: JSON.stringify({ command_run_id: run.id, state_code: stateCode, publisher_scope: publisherScope }),
+        body: JSON.stringify({
+          command_run_id: run.id,
+          state_code: stateCode,
+          publisher_scope: publisherScope,
+          publisher_id: publisherId
+        }),
         signal: controller.signal
       });
     } finally {
@@ -106,7 +125,10 @@ export const handler = async (event) => {
       execution: {
         runtime: 'NETLIFY_NATIVE',
         worker: 'command-acquisition-worker-background',
-        dispatch_status: workerResponse.status
+        dispatch_status: workerResponse.status,
+        publisher_scope: publisherScope,
+        publisher_id: publisherId,
+        assigned_agent: agent
       }
     });
   } catch (error) {
