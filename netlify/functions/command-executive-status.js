@@ -1,8 +1,8 @@
-const { response, requireDashboardAuth, db } = require('../lib/native-runtime');
+import { response, requireDashboardAuth, db } from './_shared/native-runtime.js';
 
 const lower = value => String(value || '').toLowerCase();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
@@ -41,11 +41,7 @@ exports.handler = async (event) => {
         latest_run: latestAcquisition
       },
       health: {
-        database: {
-          status: 'CONNECTED',
-          source: 'Netlify direct PostgREST reads',
-          observed_at: new Date().toISOString()
-        },
+        database: { status: 'CONNECTED', source: 'Netlify direct PostgREST reads', observed_at: new Date().toISOString() },
         command_runtime: {
           status: activeRuns.length ? 'RUNNING' : 'IDLE',
           source: 'command_runs',
