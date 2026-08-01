@@ -1,26 +1,80 @@
-const ECC={data:null,state:'ALL',timer:null};
+const ECC={data:null,timer:null};
 const q=id=>document.getElementById(id);
-const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const when=v=>v?new Date(v).toLocaleString():'—';
-const num=v=>Number(v||0).toLocaleString();
-const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').replaceAll(' ','-')}`;
+const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 const lower=v=>String(v??'').toLowerCase();
-function execLabel(r){const s=lower(r.status);if(r.action_required)return'Action Required';if(s==='completed'&&Number(r.warning_count||0)>0)return'Completed with Warnings';return s.replaceAll('_',' ').replace(/\b\w/g,x=>x.toUpperCase())||'Unknown'}
-function stateLabel(s){return ({OPERATIONAL:'Operational',MISSION_RUNNING:'Mission Running',ACTION_REQUIRED:'Action Required',UNEVALUATED:'Unevaluated',PAUSED:'Paused',DISCOVERY_COMPLETE:'Discovery Complete'})[s]||s||'Unevaluated'}
-async function eccLoad(){try{const data=await invoke('command-executive-status',{});ECC.data=data;eccRender()}catch(error){console.error('Executive status unavailable:',error)}}
-function healthCard(label,item={}){return `<article><span>${esc(label)}</span><strong>${esc(item.status||'UNKNOWN')}</strong><small>${esc(item.source||'No evidence source')} · ${when(item.observed_at)}</small>${item.detail?`<small>${esc(item.detail)}</small>`:''}</article>`}
-function missionCard(r){const pct=r.progress_value,measurable=pct!==null&&pct!==undefined;return `<article class="ecc-mission-card"><header><div><small>${esc(r.state_code||'Enterprise')} · ${esc(r.mission_type_key||'Mission')}</small><strong>${esc(r.mission_name||r.id)}</strong></div><span class="status-pill ${cls(execLabel(r))}">${esc(execLabel(r))}</span></header><div class="ecc-progress"><i style="width:${measurable?Math.max(0,Math.min(100,Number(pct))):0}%"></i></div><div class="ecc-mission-meta"><span>Stage <b>${esc(r.current_stage||'—')}</b></span><span>Progress <b>${measurable?`${pct}%`:esc(r.progress_mode||'Stage based')}</b></span><span>Records <b>${num(r.records_processed||r.result_count||0)}</b></span><span>Warnings <b>${num(r.warning_count)}</b></span><span>Failures <b>${num(r.failure_count)}</b></span><span>Last Activity <b>${when(r.last_activity_at||r.updated_at)}</b></span></div><a href="/missions/?id=${encodeURIComponent(r.id)}">Open Mission Workspace →</a></article>`}
-function stateCard(s,d){const counts=d.state_counts?.[s.state_code]||{};const active=(d.active_runs||[]).find(r=>r.state_code===s.state_code);const attention=(d.attention_runs||[]).filter(r=>r.state_code===s.state_code).length;const publishers=(d.publisher_registry||[]).filter(p=>p.state_code===s.state_code).length;return `<article><header><div><small>${esc(s.state_code)}</small><strong>${esc(s.state_name||s.state_code)}</strong></div><span class="status-pill ${cls(s.inventory_status)}">${esc(stateLabel(s.inventory_status))}</span></header><div class="ecc-state-metrics"><span>Publishers <b>${num(publishers)}</b></span><span>Open Contracts <b>${num(counts.open)}</b></span><span>Active Mission <b>${active?esc(active.mission_type_key):'None'}</b></span><span>Exceptions <b>${num(attention)}</b></span></div></article>`}
-function renderPublisherDirectory(d,selected){const rows=(d.publisher_registry||[]).filter(p=>!selected||p.state_code===selected);q('eccPublisherRegistry').innerHTML=rows.length?rows.slice(0,20).map(p=>`<article><div><strong>${esc(p.publisher_name)}</strong><small>${esc(p.state_code)} · ${esc(p.organization_type||'Publishing agency')}</small><small>${esc(p.acquisition_method||'Automatic method resolution')} · ${esc(p.search_endpoint||p.procurement_website||p.official_website||'Endpoint refresh required')}</small></div><div><span class="status-pill ${cls(p.verified?'evidenced':'discovered')}">${p.verified?'Evidenced':'Discovered'}</span><small>${when(p.last_verified_at||p.updated_at)}</small></div></article>`).join(''):'<p class="ecc-empty">No publisher intelligence in this context.</p>'}
-function renderAcquisition(d,selected){const a=d.acquisition||{};const runs=(a.recent_runs||[]).filter(r=>!selected||r.state_code===selected);q('eccAcquisitionOps').innerHTML=runs.length?runs.slice(0,10).map(r=>`<article><div><strong>${esc(r.publisher_name||`Acquisition ${String(r.id||'').slice(0,8)}`)}</strong><small>Discovered ${num(r.records_discovered)} · Acquired ${num(r.records_acquired)} · Pages ${num(r.pages_processed)}</small></div><div><span class="status-pill ${cls(r.status)}">${esc(r.status||'UNEVALUATED')}</span><small>${when(r.completed_at||r.started_at||r.created_at)}</small></div></article>`).join(''):'<p class="ecc-empty">No acquisition execution evidence in this context.</p>'}
-function renderInventory(d,selected){const rows=(d.procurement_inventory?.recent||[]).filter(o=>!selected||o.state_code===selected),s=d.procurement_inventory?.summary||{};const stateCount=selected?rows.length:s.total;const cards=[['Canonical Opportunities',stateCount],['Currently Open',selected?rows.filter(x=>lower(x.status)==='open').length:s.open],['Lifecycle Review',selected?rows.filter(x=>x.lifecycle_verification_required).length:s.lifecycle_verification_required],['Contract DNA Complete',selected?rows.filter(x=>lower(x.natcorp_contract_dna_status)==='complete').length:s.contract_dna_complete]];q('eccProcurementInventory').innerHTML=cards.map(([a,b])=>`<article><span>${a}</span><strong>${num(b)}</strong></article>`).join('')}
-function renderExceptions(d,selected){const rows=(d.attention_runs||[]).filter(r=>!selected||r.state_code===selected);q('eccActionRequired').innerHTML=rows.length?rows.map(missionCard).join(''):'<p class="ecc-empty">No mission exceptions require operator action.</p>'}
-function renderHealth(d){const h=d.health||{};const supported=[['Database',h.database],['Command Runtime',h.command_runtime],['Connector Health',h.connector_health],['Publisher Intelligence',h.publisher_registry],['Acquisition',h.acquisition],['Scheduler',h.scheduler],['Lifecycle',h.lifecycle_apply]];q('eccHealth').innerHTML=supported.map(([label,item])=>healthCard(label,item)).join('')}
-function renderAudit(d,selected){const rows=(d.audit||[]).filter(a=>!selected||!a.state_code||a.state_code===selected);q('eccAuditHistory').innerHTML=rows.length?rows.slice(0,12).map(a=>`<article><div><strong>${esc(a.action_type||a.action||a.event_type||'Governed activity')}</strong><small>${esc(a.state_code||'Enterprise')} · ${esc(a.actor_type||a.actor||'System')}</small></div><div><small>${when(a.occurred_at||a.created_at)}</small></div></article>`).join(''):'<p class="ecc-empty">No governed activity in this context.</p>'}
-function renderResults(d,selected){const completed=(d.runs||[]).filter(r=>['completed','completed_with_warnings','completed_with_failures','failed'].includes(lower(r.status))&&(!selected||r.state_code===selected)).slice(0,12);q('eccDeliverables').innerHTML=completed.length?completed.map(r=>`<article><div><strong>${esc(r.mission_name||r.mission_type_key)}</strong><small>${esc(r.state_code||'Enterprise')} · ${esc(r.current_stage||'Final')}</small><small>Actual records ${num(r.records_processed||r.result_count||0)} · Warnings ${num(r.warning_count)} · Failures ${num(r.failure_count)}</small></div><div><span class="status-pill ${cls(r.status)}">${esc(execLabel(r))}</span><small>${when(r.completed_at||r.updated_at)}</small></div></article>`).join(''):'<p class="ecc-empty">No completed mission results in this context.</p>'}
-function renderLifecycle(d){const totals=d.totals||{},events=d.lifecycle_events||[],apply=d.health?.lifecycle_apply||{};q('eccLifecycle').innerHTML=`<div class="ecc-lifecycle-grid"><article><span>Verification Required</span><strong>${num(totals.lifecycle_verification_required)}</strong></article><article><span>Recent Evaluations</span><strong>${num(events.length)}</strong></article><article><span>Apply Mode</span><strong>${esc(apply.status||'UNKNOWN')}</strong></article></div><p>Lifecycle processing reports actual state and preserves historical records.</p>`}
-function renderSchedules(d,selected){const rows=(d.schedules||[]).filter(s=>!selected||!s.state_codes?.length||s.state_codes.includes(selected));q('eccSchedules').innerHTML=rows.length?rows.map(s=>`<article><div><strong>${esc(s.schedule_name)}</strong><small>${esc(s.operation_type)} · ${(s.state_codes||[]).join(', ')||'Enterprise'}</small></div><div><span class="status-pill ${cls(s.current_status)}">${esc(s.current_status)}</span><small>Last ${when(s.last_run_at)} · Next ${when(s.next_run_at)}</small></div></article>`).join(''):'<p class="ecc-empty">No recurring operations configured.</p>'}
-function renderNotifications(d,selected){const rows=(d.notifications||[]).filter(n=>!selected||n.state_code===selected);q('eccNotifications').innerHTML=rows.length?rows.slice(0,10).map(n=>`<article class="${n.action_required?'needs-action':''}"><strong>${esc(n.title)}</strong><p>${esc(n.message)}</p><small>${esc(n.state_code||'Enterprise')} · ${when(n.created_at)}</small></article>`).join(''):'<p class="ecc-empty">No operational notifications.</p>'}
-function eccRender(){const d=ECC.data;if(!d)return;const states=d.states||[],selected=ECC.state==='ALL'?null:ECC.state;q('eccUpdated').textContent=`Updated ${new Date(d.generated_at).toLocaleTimeString()}`;const status=d.system?.operational_status||d.health?.database?.status||'UNEVALUATED';q('systemStatus').textContent=status;q('systemStatus').className=`status-pill ${cls(status)}`;q('eccStateSelector').innerHTML=`<button class="${ECC.state==='ALL'?'active':''}" data-state="ALL">Enterprise</button>`+states.map(s=>`<button class="${ECC.state===s.state_code?'active':''}" data-state="${s.state_code}"><i class="state-dot ${cls(s.inventory_status)}"></i>${esc(s.state_name||s.state_code)}</button>`).join('');const active=(d.active_runs||[]).filter(r=>!selected||r.state_code===selected);q('eccActiveMissions').innerHTML=active.length?active.map(missionCard).join(''):'<p class="ecc-empty">No active missions in this context.</p>';q('eccStateInventory').innerHTML=states.filter(s=>!selected||s.state_code===selected).map(s=>stateCard(s,d)).join('')||'<p class="ecc-empty">No state evidence in this context.</p>';renderPublisherDirectory(d,selected);renderAcquisition(d,selected);renderInventory(d,selected);renderExceptions(d,selected);renderHealth(d);renderAudit(d,selected);renderResults(d,selected);renderLifecycle(d);renderSchedules(d,selected);renderNotifications(d,selected)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-state]');if(!b)return;ECC.state=b.dataset.state;eccRender()});
+const num=v=>Number(v||0).toLocaleString();
+const when=v=>v?new Date(v).toLocaleString():'—';
+const ms=v=>v?new Date(v).getTime():0;
+const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').replaceAll(' ','-')}`;
+
+function resultLabel(r){
+  const status=lower(r.status||r.aadp_state);
+  const failures=Number(r.failure_count||0);
+  const warnings=Number(r.warning_count||0);
+  if(r.action_required||status==='blocked')return'BLOCKED';
+  if(status==='failed'||status==='completed_with_failures'||failures>0)return'FAIL';
+  if(status==='completed_with_warnings'||(status==='completed'&&warnings>0))return'PASS WITH WARNINGS';
+  if(status==='completed')return'PASS';
+  if(status==='queued'||status==='pending')return'QUEUED';
+  if(status==='running'||status==='processing')return'RUNNING';
+  return String(r.status||r.aadp_state||'UNKNOWN').replaceAll('_',' ').toUpperCase();
+}
+
+function publisherName(r){
+  const cfg=r.mission_config||{};
+  const evidence=r.execution_evidence||{};
+  return r.publisher_name||cfg.publisher_name||evidence.publisher_name||'ALL';
+}
+
+function stateName(r){return r.state_name||r.state_code||'ALL';}
+function instanceId(r){return r.task_force_instance_id||r.instance_id||`TF-${String(r.id||'UNKNOWN').slice(0,12).toUpperCase()}`;}
+function records(r,key,fallback=0){return r[key]??r.execution_evidence?.[key]??r.result?.[key]??fallback;}
+function elapsed(r){
+  const start=ms(r.started_at||r.created_at),end=ms(r.completed_at||r.last_activity_at||r.updated_at)||Date.now();
+  if(!start)return'—';
+  const total=Math.max(0,Math.floor((end-start)/1000));
+  const h=String(Math.floor(total/3600)).padStart(2,'0');
+  const m=String(Math.floor((total%3600)/60)).padStart(2,'0');
+  const s=String(total%60).padStart(2,'0');
+  return`${h}:${m}:${s}`;
+}
+
+function taskForceCard(r){
+  const result=resultLabel(r);
+  const complete=['PASS','PASS WITH WARNINGS','FAIL','BLOCKED'].includes(result);
+  const pct=Math.max(0,Math.min(100,Number(r.progress_value||0)));
+  const discovered=records(r,'records_discovered',records(r,'result_count',0));
+  const acquired=records(r,'records_acquired',records(r,'records_processed',0));
+  const accepted=records(r,'records_accepted',Math.max(0,Number(acquired)-Number(records(r,'records_rejected',0))));
+  const rejected=records(r,'records_rejected',records(r,'failure_count',0));
+  const task=String(r.mission_type_key||r.mission_name||'TASK FORCE').replaceAll('_',' ');
+  const heading=`${task} STATE: ${stateName(r)} PUBLISHER: ${publisherName(r)}`;
+  const details=complete
+    ?`<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>`
+    :`<div class="ecc-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div><div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Progress<b>${pct}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
+  return`<article class="ecc-task-force-card ${cls(result)}"><header><div><small>TASK FORCE INSTANCE · ${esc(instanceId(r))}</small><h3>${esc(heading)}</h3></div><span class="status-pill ${cls(result)}">${esc(result)}</span></header>${details}<a class="ecc-report-link" href="/missions/?id=${encodeURIComponent(r.id)}">VIEW REPORT</a></article>`;
+}
+
+function uniqueRuns(data){
+  const all=[...(data.active_runs||[]),...(data.attention_runs||[]),...(data.runs||[])];
+  const map=new Map();
+  all.forEach(r=>{if(r?.id&&!map.has(r.id))map.set(r.id,r)});
+  return[...map.values()].sort((a,b)=>ms(b.last_activity_at||b.updated_at||b.created_at)-ms(a.last_activity_at||a.updated_at||a.created_at)).slice(0,20);
+}
+
+async function eccLoad(){
+  try{ECC.data=await invoke('command-executive-status',{});eccRender()}
+  catch(error){console.error('Executive status unavailable:',error);const monitor=q('eccTaskForceMonitor');if(monitor)monitor.innerHTML=`<p class="ecc-empty">Activity Monitor unavailable: ${esc(error.message||error)}</p>`}
+}
+
+function eccRender(){
+  if(!ECC.data)return;
+  const updated=q('eccUpdated');
+  if(updated)updated.textContent=`Updated ${new Date(ECC.data.generated_at||Date.now()).toLocaleTimeString()}`;
+  const monitor=q('eccTaskForceMonitor');
+  if(!monitor)return;
+  const runs=uniqueRuns(ECC.data);
+  monitor.innerHTML=runs.length?runs.map(taskForceCard).join(''):'<p class="ecc-empty">No Task Force Instances are available.</p>';
+}
+
 window.addEventListener('apie:authenticated',()=>{eccLoad();clearInterval(ECC.timer);ECC.timer=setInterval(eccLoad,15000)});
