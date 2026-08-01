@@ -1,13 +1,13 @@
-const { createHash, timingSafeEqual } = require('node:crypto');
+import { createHash, timingSafeEqual } from 'node:crypto';
 
-function env(name) {
+export function env(name) {
   try {
     if (globalThis.Netlify?.env?.get) return globalThis.Netlify.env.get(name) || '';
   } catch {}
   return process.env[name] || '';
 }
 
-function response(statusCode, body) {
+export function response(statusCode, body) {
   return {
     statusCode,
     headers: {
@@ -18,17 +18,17 @@ function response(statusCode, body) {
   };
 }
 
-function header(event, name) {
+export function header(event, name) {
   const headers = event?.headers || {};
   return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || '';
 }
 
-function parseBody(event) {
+export function parseBody(event) {
   try { return event?.body ? JSON.parse(event.body) : {}; }
   catch { return {}; }
 }
 
-function requireDashboardAuth(event) {
+export function requireDashboardAuth(event) {
   const supplied = header(event, 'x-dashboard-password');
   const storedHash = env('EXECUTIVE_AUTH_HASH');
   if (!supplied || !/^[0-9a-f]{64}$/i.test(storedHash)) return false;
@@ -37,7 +37,7 @@ function requireDashboardAuth(event) {
   return suppliedDigest.length === expectedDigest.length && timingSafeEqual(suppliedDigest, expectedDigest);
 }
 
-async function db(path, init = {}) {
+export async function db(path, init = {}) {
   const url = env('SUPABASE_URL').replace(/\/$/, '');
   const key = env('SUPABASE_SERVICE_KEY');
   if (!url || !key) throw new Error('Supabase database runtime configuration incomplete');
@@ -71,5 +71,3 @@ async function db(path, init = {}) {
     clearTimeout(timeout);
   }
 }
-
-module.exports = { env, response, header, parseBody, requireDashboardAuth, db };
