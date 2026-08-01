@@ -11,10 +11,10 @@ function resultLabel(r){
   const status=lower(r.status||r.aadp_state);
   const failures=Number(r.failure_count||0);
   const warnings=Number(r.warning_count||0);
-  if(r.action_required||status==='blocked')return'BLOCKED';
-  if(status==='failed'||status==='completed_with_failures'||failures>0)return'FAIL';
-  if(status==='completed_with_warnings'||(status==='completed'&&warnings>0))return'PASS WITH WARNINGS';
+  if(status==='completed_with_warnings'||status==='completed_with_failures'||status==='partially_complete'||(status==='completed'&&(warnings>0||failures>0)))return'PASS WITH WARNINGS';
   if(status==='completed')return'PASS';
+  if(status==='failed')return'FAIL';
+  if(status==='blocked'||(r.action_required&&!['completed','completed_with_warnings','completed_with_failures','partially_complete'].includes(status)))return'BLOCKED';
   if(status==='queued'||status==='pending')return'QUEUED';
   if(status==='running'||status==='processing')return'RUNNING';
   return String(r.status||r.aadp_state||'UNKNOWN').replaceAll('_',' ').toUpperCase();
@@ -40,10 +40,53 @@ function elapsed(r){
   return`${h}:${m}:${s}`;
 }
 
+const STAGES=[
+  {key:'publisher-discovery',label:'Publisher Discovery',range:[0,25]},
+  {key:'publisher-validation',label:'Publisher Validation',range:[25,45]},
+  {key:'assignment-creation',label:'Assignment Creation',range:[45,65]},
+  {key:'acquisition-discovery',label:'Acquisition Discovery',range:[65,95]},
+  {key:'mission-completion',label:'Mission Completion',range:[95,100]}
+];
+
+function currentStageIndex(r){
+  const stage=String(r.current_stage||'').toUpperCase();
+  if(stage.includes('PUBLISHER_DISCOVERY'))return 0;
+  if(stage.includes('PUBLISHER_VALIDATION')||stage.includes('DUPLICATE')||stage.includes('CANDIDATE'))return 1;
+  if(stage.includes('ASSIGNMENT')||stage.includes('ACQUISITION_QUEUED')||stage.includes('HANDOFF'))return 2;
+  if(stage.includes('RESOLVING_PUBLISHERS')||stage.includes('ACQUIRING')||stage.includes('ACQUISITION'))return 3;
+  if(stage.includes('COMPLETE')||stage.includes('FAILED')||stage.includes('BLOCKED'))return 4;
+  const pct=Number(r.progress_value||0);
+  if(pct<25)return 0;if(pct<45)return 1;if(pct<65)return 2;if(pct<95)return 3;return 4;
+}
+
+function stageModels(r){
+  const result=resultLabel(r);
+  const terminal=['PASS','PASS WITH WARNINGS','FAIL','BLOCKED'].includes(result);
+  const active=currentStageIndex(r);
+  const overall=Math.max(0,Math.min(100,Number(r.progress_value||0)));
+  return STAGES.map((stage,index)=>{
+    let status='PENDING';
+    let progress=0;
+    if(terminal){
+      if(index<4){status='COMPLETED';progress=100;}
+      else{status=result==='PASS'?'COMPLETED':result==='PASS WITH WARNINGS'?'WARNING':result;progress=100;}
+    }else if(index<active){status='COMPLETED';progress=100;}
+    else if(index===active){
+      status='RUNNING';
+      const [start,end]=stage.range;
+      progress=Math.max(4,Math.min(100,Math.round(((overall-start)/Math.max(1,end-start))*100)));
+    }
+    return{...stage,index:index+1,status,progress};
+  });
+}
+
+function stageMonitor(r){
+  return`<section class="ecc-stage-monitor" aria-label="Five-stage mission progress">${stageModels(r).map(stage=>`<div class="ecc-stage-row ${cls(stage.status)}"><div class="ecc-stage-heading"><span class="ecc-stage-number">${stage.index}</span><div><b>${esc(stage.label)}</b><small>${esc(stage.status.replaceAll('_',' '))}</small></div><strong>${stage.progress}%</strong></div><progress class="ecc-stage-progress" max="100" value="${stage.progress}" aria-label="${esc(stage.label)} progress">${stage.progress}%</progress></div>`).join('')}</section>`;
+}
+
 function taskForceCard(r){
   const result=resultLabel(r);
   const complete=['PASS','PASS WITH WARNINGS','FAIL','BLOCKED'].includes(result);
-  const pct=Math.max(0,Math.min(100,Number(r.progress_value||0)));
   const discovered=records(r,'records_discovered',records(r,'result_count',0));
   const acquired=records(r,'records_acquired',records(r,'records_processed',0));
   const accepted=records(r,'records_accepted',Math.max(0,Number(acquired)-Number(records(r,'records_rejected',0))));
@@ -54,8 +97,8 @@ function taskForceCard(r){
   const reasonMarkup=complete&&reason?`<div class="ecc-result-reason"><span>${result==='BLOCKED'?'Blocker':'Result Detail'}</span><b>${esc(reason)}</b></div>`:'';
   const details=complete
     ?`<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>${reasonMarkup}`
-    :`<progress class="ecc-progress" max="100" value="${pct}" aria-label="Task progress">${pct}%</progress><div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Progress<b>${pct}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
-  return`<article class="ecc-task-force-card ${cls(result)}"><header><div><small>TASK FORCE INSTANCE · ${esc(instanceId(r))}</small><h3>${esc(heading)}</h3></div><span class="status-pill ${cls(result)}">${esc(result)}</span></header>${details}<a class="ecc-report-link" href="/missions/?id=${encodeURIComponent(r.id)}">VIEW REPORT</a></article>`;
+    :`<div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Overall Progress<b>${Math.max(0,Math.min(100,Number(r.progress_value||0)))}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
+  return`<article class="ecc-task-force-card ${cls(result)}"><header><div><small>TASK FORCE INSTANCE · ${esc(instanceId(r))}</small><h3>${esc(heading)}</h3></div><span class="status-pill ${cls(result)}">${esc(result)}</span></header>${stageMonitor(r)}${details}<a class="ecc-report-link" href="/missions/?id=${encodeURIComponent(r.id)}">VIEW REPORT</a></article>`;
 }
 
 function uniqueRuns(data){
@@ -124,5 +167,5 @@ function eccRender(){
 window.addEventListener('apie:authenticated',()=>{
   window.eccClearTaskForceMonitor();
   clearInterval(ECC.timer);
-  ECC.timer=setInterval(eccLoad,15000);
+  ECC.timer=setInterval(eccLoad,5000);
 });
