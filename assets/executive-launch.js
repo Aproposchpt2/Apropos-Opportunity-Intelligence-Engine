@@ -1,6 +1,6 @@
 const TASKS={
   PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',field:{id:'discovery_scope',label:'Discovery Scope',type:'select',options:[['STATEWIDE','Statewide publishers'],['STATE_AND_LOCAL','State and local publishers'],['REFRESH','Refresh existing publisher intelligence']]},operation:'command-mission-control'},
-  ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',publisher:true,operation:'command-acquisition-mission'},
+  ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',publisher:true,operation:'command-mission-control'},
   STATE_MISSION:{agent:'State Operations',state:'required',field:{id:'state_operation',label:'Operation',type:'select',options:[['EVALUATE_READINESS','Evaluate operational state'],['RECONCILE_CAPABILITIES','Reconcile capabilities'],['REFRESH_STATE_INTELLIGENCE','Refresh state intelligence']]},operation:'command-mission-control'},
   AADP_PROCESSING:{agent:'AADP Processing',state:'optional',field:{id:'processing_scope',label:'Processing Scope',type:'select',options:[['UNPROCESSED','Unprocessed acquisition records'],['FAILED_RETRYABLE','Retryable failures'],['RECENT','Recently acquired records'],['ALL_PENDING','All pending records']]},operation:'command-automated-task'},
   AOIE_ANALYSIS:{agent:'AOIE Analysis',state:'optional',field:{id:'analysis_scope',label:'Analysis Scope',type:'select',options:[['NEWLY_QUALIFIED','Newly qualified opportunities'],['UNANALYZED','Unanalyzed opportunities'],['REFRESH','Refresh existing analysis']]},operation:'command-automated-task'},
