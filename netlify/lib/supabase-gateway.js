@@ -1,11 +1,15 @@
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const GATEWAY_KEY = process.env.SUPABASE_ANON_KEY;
+function env(name) {
+  try {
+    if (globalThis.Netlify?.env?.get) return globalThis.Netlify.env.get(name) || '';
+  } catch {}
+  return process.env[name] || '';
+}
 
 function response(statusCode, body) {
   return {
     statusCode,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type, x-dashboard-password',
@@ -15,47 +19,98 @@ function response(statusCode, body) {
   };
 }
 
+function header(event, name) {
+  const headers = event?.headers || {};
+  return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || '';
+}
+
 async function proxyToSupabase(event, functionName) {
-  if (event.httpMethod === 'OPTIONS') return response(200, { ok: true });
-  if (event.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
-  if (!SUPABASE_URL || !GATEWAY_KEY) return response(500, { error: 'Server gateway configuration incomplete' });
+  try {
+    if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
+    if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
 
-  const dashboardPassword = event.headers['x-dashboard-password'] || event.headers['X-Dashboard-Password'] || '';
-  if (!dashboardPassword) return response(401, { error: 'Unauthorized' });
+    const supabaseUrl = env('SUPABASE_URL');
+    const gatewayKey = env('SUPABASE_ANON_KEY');
+    if (!supabaseUrl || !gatewayKey) {
+      console.error('Netlify gateway configuration incomplete', {
+        functionName,
+        hasSupabaseUrl: Boolean(supabaseUrl),
+        hasAnonKey: Boolean(gatewayKey)
+      });
+      return response(500, { error: 'Server gateway configuration incomplete', function: functionName });
+    }
 
-  const upstream = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': GATEWAY_KEY,
-      'Authorization': `Bearer ${GATEWAY_KEY}`,
-      'x-dashboard-password': dashboardPassword
-    },
-    body: event.body || '{}'
-  });
+    const dashboardPassword = header(event, 'x-dashboard-password');
+    if (!dashboardPassword) return response(401, { error: 'Unauthorized' });
 
-  const text = await upstream.text();
-  let body;
-  try { body = text ? JSON.parse(text) : {}; }
-  catch { body = { raw: text }; }
-  return response(upstream.status, body);
+    let upstream;
+    try {
+      upstream = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/${functionName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: gatewayKey,
+          Authorization: `Bearer ${gatewayKey}`,
+          'x-dashboard-password': dashboardPassword
+        },
+        body: event.body || '{}',
+        signal: AbortSignal.timeout(25000)
+      });
+    } catch (error) {
+      console.error('Supabase upstream transport failed', { functionName, error: String(error) });
+      return response(502, {
+        error: 'Upstream runtime transport failed',
+        function: functionName,
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    const text = await upstream.text();
+    let body;
+    try { body = text ? JSON.parse(text) : {}; }
+    catch { body = { raw: text }; }
+
+    if (!upstream.ok) {
+      console.error('Supabase upstream returned failure', {
+        functionName,
+        status: upstream.status,
+        body
+      });
+    }
+
+    return response(upstream.status, body);
+  } catch (error) {
+    console.error('Netlify gateway unhandled failure', { functionName, error: String(error) });
+    return response(500, {
+      error: 'Netlify runtime gateway failed',
+      function: functionName,
+      detail: error instanceof Error ? error.message : String(error)
+    });
+  }
 }
 
 async function verifyDashboard(event) {
-  if (!SUPABASE_URL || !GATEWAY_KEY) return { ok: false, status: 500, error: 'Server gateway configuration incomplete' };
-  const dashboardPassword = event.headers['x-dashboard-password'] || event.headers['X-Dashboard-Password'] || '';
+  const supabaseUrl = env('SUPABASE_URL');
+  const gatewayKey = env('SUPABASE_ANON_KEY');
+  if (!supabaseUrl || !gatewayKey) return { ok: false, status: 500, error: 'Server gateway configuration incomplete' };
+  const dashboardPassword = header(event, 'x-dashboard-password');
   if (!dashboardPassword) return { ok: false, status: 401, error: 'Unauthorized' };
-  const upstream = await fetch(`${SUPABASE_URL}/functions/v1/command-executive-status`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': GATEWAY_KEY,
-      'Authorization': `Bearer ${GATEWAY_KEY}`,
-      'x-dashboard-password': dashboardPassword
-    },
-    body: '{}'
-  });
-  return upstream.ok ? { ok: true } : { ok: false, status: upstream.status, error: 'Unauthorized' };
+  try {
+    const upstream = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/command-executive-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: gatewayKey,
+        Authorization: `Bearer ${gatewayKey}`,
+        'x-dashboard-password': dashboardPassword
+      },
+      body: '{}',
+      signal: AbortSignal.timeout(15000)
+    });
+    return upstream.ok ? { ok: true } : { ok: false, status: upstream.status, error: 'Unauthorized' };
+  } catch (error) {
+    return { ok: false, status: 502, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 module.exports = { proxyToSupabase, verifyDashboard, response };
