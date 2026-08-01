@@ -3,6 +3,7 @@ import { response, parseBody, requireDashboardAuth, db } from './_shared/native-
 
 const hash = value => createHash('sha256').update(String(value)).digest('hex');
 const now = () => new Date().toISOString();
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function recordsFromPayload(payload) {
   if (Array.isArray(payload)) return payload;
@@ -21,6 +22,51 @@ function latestAssignmentPerPublisher(assignments) {
     selected.set(key, assignment);
   }
   return [...selected.values()];
+}
+
+function failureClass(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error?.name === 'AbortError' || /aborted|timeout/i.test(message)) return 'TIMEOUT';
+  const match = message.match(/HTTP\s+(\d{3})/i);
+  if (match) {
+    const status = Number(match[1]);
+    if (status === 401) return 'AUTH_REQUIRED';
+    if (status === 403) return 'HTTP_FORBIDDEN';
+    if (status === 404) return 'HTTP_NOT_FOUND';
+    if (status === 429) return 'HTTP_RATE_LIMITED';
+    if (status >= 500) return 'SOURCE_UNAVAILABLE';
+    return `HTTP_${status}`;
+  }
+  if (/fetch failed|network|connection|dns|socket/i.test(message)) return 'CONNECTION_FAILURE';
+  if (/no acquisition endpoint/i.test(message)) return 'ENDPOINT_MISSING';
+  return 'UNKNOWN';
+}
+
+function retryable(error) {
+  return ['TIMEOUT', 'HTTP_RATE_LIMITED', 'SOURCE_UNAVAILABLE', 'CONNECTION_FAILURE'].includes(failureClass(error));
+}
+
+async function fetchPublisher(endpoint) {
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    try {
+      const upstream = await fetch(endpoint, {
+        headers: { Accept: 'application/json,text/html;q=0.9,*/*;q=0.8', 'User-Agent': 'APROPOS-APIE/1.0' },
+        signal: controller.signal
+      });
+      if (!upstream.ok) throw new Error(`Publisher endpoint returned HTTP ${upstream.status}`);
+      return { upstream, attempts: attempt, retried: attempt > 1 };
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2 || !retryable(error)) break;
+      await sleep(1200);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), { acquisitionAttempts: 2 });
 }
 
 export const handler = async event => {
@@ -59,7 +105,7 @@ export const handler = async event => {
       return response(200, { ok: false, reason: 'NO_READY_ASSIGNMENTS' });
     }
 
-    let discovered = 0, acquired = 0, failures = 0;
+    let discovered = 0, acquired = 0, failures = 0, retries = 0, retryRecoveries = 0;
     const failureDetails = [];
     for (let index = 0; index < selected.length; index++) {
       const assignment = selected[index];
@@ -71,12 +117,8 @@ export const handler = async event => {
       const acquisitionRun = created?.[0];
       try {
         if (!endpoint) throw new Error('Publisher has no acquisition endpoint');
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 25000);
-        let upstream;
-        try { upstream = await fetch(endpoint, { headers: { Accept: 'application/json,text/html;q=0.9,*/*;q=0.8', 'User-Agent': 'APROPOS-APIE/1.0' }, signal: controller.signal }); }
-        finally { clearTimeout(timeout); }
-        if (!upstream.ok) throw new Error(`Publisher endpoint returned HTTP ${upstream.status}`);
+        const { upstream, attempts, retried } = await fetchPublisher(endpoint);
+        if (retried) { retries++; retryRecoveries++; }
         const contentType = upstream.headers.get('content-type') || '';
         const text = await upstream.text();
         let payload;
@@ -91,12 +133,15 @@ export const handler = async event => {
         });
         if (rawRows.length) await db('acquisition_raw_records', { method: 'POST', body: JSON.stringify(rawRows), headers: { Prefer: 'resolution=ignore-duplicates,return=representation' } });
         acquired += rawRows.length;
-        await db(`acquisition_runs?id=eq.${acquisitionRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'COMPLETED', records_discovered: records.length, records_acquired: rawRows.length, pages_processed: 1, pagination_complete: true, completed_at: now(), evidence: { ...baseEvidence, content_type: contentType } }) });
+        await db(`acquisition_runs?id=eq.${acquisitionRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'COMPLETED', records_discovered: records.length, records_acquired: rawRows.length, pages_processed: 1, pagination_complete: true, completed_at: now(), evidence: { ...baseEvidence, content_type: contentType, attempts, retry_recovered: retried } }) });
       } catch (error) {
         failures++;
         const message = error instanceof Error ? error.message : String(error);
-        failureDetails.push({ publisher_id: assignment.publisher_id, publisher_name: publisherName, assignment_id: assignment.id, endpoint, acquisition_method: assignment.acquisition_method, error: message });
-        await db(`acquisition_runs?id=eq.${acquisitionRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'FAILED', retrieval_failures: 1, completed_at: now(), evidence: { ...baseEvidence, error: message } }) });
+        const classification = failureClass(error);
+        const attempts = Number(error?.acquisitionAttempts || 1);
+        if (attempts > 1) retries++;
+        failureDetails.push({ publisher_id: assignment.publisher_id, publisher_name: publisherName, assignment_id: assignment.id, endpoint, acquisition_method: assignment.acquisition_method, error: message, failure_class: classification, attempts });
+        await db(`acquisition_runs?id=eq.${acquisitionRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'FAILED', retrieval_failures: 1, completed_at: now(), evidence: { ...baseEvidence, error: message, failure_class: classification, attempts, retry_exhausted: attempts > 1 } }) });
       }
       const progress = Math.min(95, 15 + Math.round(((index + 1) / selected.length) * 80));
       await db(`command_runs?id=eq.${commandRunId}`, { method: 'PATCH', body: JSON.stringify({ current_stage: 'ACQUIRING_PUBLISHERS', progress_value: progress, records_acquired: acquired, failure_count: failures, last_activity_at: now() }) });
@@ -104,16 +149,17 @@ export const handler = async event => {
 
     const allFailed = failures === selected.length;
     const partial = failures > 0 && !allFailed;
+    const succeeded = selected.length - failures;
     const finalStatus = allFailed ? 'failed' : 'completed';
     const aadpState = allFailed ? 'FAILED' : partial ? 'PARTIALLY_COMPLETE' : 'COMPLETED';
     const summary = allFailed
-      ? `All ${selected.length} publisher acquisitions failed.`
+      ? `All ${selected.length} publisher acquisitions failed after controlled retry handling.`
       : partial
-        ? `Completed with warnings: ${selected.length - failures} publishers succeeded and ${failures} failed; ${acquired} records acquired.`
-        : `Completed successfully: ${selected.length} publishers processed and ${acquired} records acquired.`;
+        ? `Completed with warnings: ${succeeded} of ${selected.length} publishers succeeded; ${acquired} records acquired; ${retryRecoveries} retry recoveries.`
+        : `Completed successfully: ${selected.length} publishers processed and ${acquired} records acquired; ${retryRecoveries} retry recoveries.`;
 
-    await db(`command_runs?id=eq.${commandRunId}`, { method: 'PATCH', body: JSON.stringify({ status: finalStatus, aadp_state: aadpState, current_stage: 'COMPLETED', progress_value: 100, records_acquired: acquired, warning_count: partial ? failures : 0, failure_count: allFailed ? failures : 0, completed_at: now(), last_activity_at: now(), action_required: failures > 0, result_summary: summary, execution_evidence: { runtime: 'NETLIFY_NATIVE', state_code: stateCode, publisher_scope: publisherScope, publisher_id: publisherId, ready_assignments_before_deduplication: matching.length, publishers_processed: selected.length, records_discovered: discovered, records_acquired: acquired, failures, failure_details: failureDetails, completion_classification: allFailed ? 'FAILED' : partial ? 'COMPLETED_WITH_WARNINGS' : 'COMPLETED' } }) });
-    return response(200, { ok: !allFailed, completion_classification: allFailed ? 'FAILED' : partial ? 'COMPLETED_WITH_WARNINGS' : 'COMPLETED', command_run_id: commandRunId, publishers_processed: selected.length, records_discovered: discovered, records_acquired: acquired, failures, failure_details: failureDetails });
+    await db(`command_runs?id=eq.${commandRunId}`, { method: 'PATCH', body: JSON.stringify({ status: finalStatus, aadp_state: aadpState, current_stage: 'COMPLETED', progress_value: 100, records_acquired: acquired, warning_count: partial ? failures : 0, failure_count: allFailed ? failures : 0, completed_at: now(), last_activity_at: now(), action_required: failures > 0, result_summary: summary, execution_evidence: { runtime: 'NETLIFY_NATIVE', state_code: stateCode, publisher_scope: publisherScope, publisher_id: publisherId, ready_assignments_before_deduplication: matching.length, publishers_processed: selected.length, publishers_succeeded: succeeded, publisher_success_rate: selected.length ? Math.round((succeeded / selected.length) * 100) : 0, records_discovered: discovered, records_acquired: acquired, acquisition_yield: selected.length ? Math.round((acquired / selected.length) * 100) : 0, failures, retries, retry_recoveries: retryRecoveries, failure_details: failureDetails, completion_classification: allFailed ? 'FAILED' : partial ? 'COMPLETED_WITH_WARNINGS' : 'COMPLETED' } }) });
+    return response(200, { ok: !allFailed, completion_classification: allFailed ? 'FAILED' : partial ? 'COMPLETED_WITH_WARNINGS' : 'COMPLETED', command_run_id: commandRunId, publishers_processed: selected.length, publishers_succeeded: succeeded, records_discovered: discovered, records_acquired: acquired, failures, retries, retry_recoveries: retryRecoveries, failure_details: failureDetails });
   } catch (error) {
     console.error('command-acquisition-worker-background failed', error);
     try { await db(`command_runs?id=eq.${commandRunId}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', aadp_state: 'FAILED', current_stage: 'WORKER_FAILED', action_required: true, completed_at: now(), last_activity_at: now(), result_summary: error instanceof Error ? error.message : String(error) }) }); } catch {}
