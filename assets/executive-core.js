@@ -18,7 +18,7 @@ async function invoke(name,payload={}){
   let url,headers;
   if(EDGE_FUNCTIONS.has(name)){const cfg=runtimeConfig();if(!cfg.supabaseUrl||!cfg.anonKey)throw new Error('Executive runtime configuration unavailable.');url=`${cfg.supabaseUrl}/functions/v1/${name}`;headers=edgeHeaders()}
   else{const endpoint=NETLIFY_FUNCTIONS[name];if(!endpoint)throw new Error(`Unsupported Executive operation: ${name}`);url=`/.netlify/functions/${endpoint}`;headers=dashboardHeaders()}
-  let response;try{response=await fetch(url,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)})}catch(error){recordTransportFailure(name);throw new Error(`${name} transport unavailable${error?.name==='TimeoutError'?' (timeout)':''}`)}
+  let response;try{response=await fetch(url,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)})}catch(error){recordTransportFailure(name);throw new Error(`${name} transport unavailable${error?.name==='TimeoutError'?' (timeout)':''}`)}
   if(response.status===401){dashboardPassword='';sessionStorage.removeItem('apieDashboardPassword');showGate('Authorization required.');throw new Error('Unauthorized')}
   const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status>=500)recordTransportFailure(name);throw new Error(data.error||data.message||`${name} failed (${response.status})`)}recordTransportSuccess(name);return data
 }
