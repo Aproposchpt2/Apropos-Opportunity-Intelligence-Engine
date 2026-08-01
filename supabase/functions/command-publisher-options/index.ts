@@ -12,9 +12,22 @@ Deno.serve(async request=>{
     const body=rec(await parseBody(request));
     const stateCode=txt(body.state_code).toUpperCase();
     if(!/^[A-Z]{2}$/.test(stateCode))return json({error:'Valid state_code is required.'},400);
-    const publishers=await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&verified=eq.true&access_status=eq.APPROVED_FOR_REGISTRY&select=id,publisher_name,state_code,organization_type,acquisition_method,search_endpoint,verified,access_status&order=publisher_name.asc`);
-    const assignments=await db('publisher_assignments?select=id,publisher_id,publisher_name,status,acquisition_method,search_endpoint,updated_at');
-    const byPublisher=new Map((assignments||[]).map((a:any)=>[txt(a.publisher_id),a]));
-    return json({state_code:stateCode,publishers:(publishers||[]).map((p:any)=>{const a=byPublisher.get(txt(p.id));return {publisher_id:p.id,publisher_name:p.publisher_name,organization_type:p.organization_type,registry_verified:p.verified===true,registry_status:p.access_status,assignment_id:a?.id||null,assignment_status:a?.status||'ONBOARDING_REQUIRED',acquisition_method:a?.acquisition_method||p.acquisition_method||null,search_endpoint:a?.search_endpoint||p.search_endpoint||null,selectable:txt(a?.status).toUpperCase()==='READY'};})});
+    const publishers=await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&select=id,publisher_name,state_code,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,last_verified_at&order=publisher_name.asc`);
+    return json({
+      state_code:stateCode,
+      publishers:(publishers||[]).filter((p:any)=>txt(p.publisher_name)).map((p:any)=>({
+        publisher_id:p.id,
+        publisher_name:p.publisher_name,
+        organization_type:p.organization_type,
+        official_website:p.official_website,
+        procurement_website:p.procurement_website,
+        acquisition_method:p.acquisition_method||'AUTO_RESOLVE',
+        search_endpoint:p.search_endpoint||p.procurement_website||p.official_website||null,
+        source_verified:p.verified===true,
+        access_status:p.access_status||'DISCOVERED',
+        last_verified_at:p.last_verified_at,
+        selectable:Boolean(p.search_endpoint||p.procurement_website||p.official_website)
+      }))
+    });
   }catch(error){return json({error:error instanceof Error?error.message:String(error)},500);}
 });

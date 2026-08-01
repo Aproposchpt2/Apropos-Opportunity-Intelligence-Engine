@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-
 const text = async path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('root index is the internal Executive Command Center', async () => {
+test('root index is the simplified internal Executive Command Center', async () => {
   const html = await text('index.html');
   for (const label of [
-    'Executive Command Center','State Operations Context','Authorize & Execute','Active Mission Monitors',
-    'Publisher Discovery','Publisher Registry','Acquisition Operations','Procurement Inventory','NAT-CORP Delivery',
-    'Recurring Automation','Action Required','Lifecycle Control','System Health','Audit / History','Deliverables / Results','Operational Notifications'
+    'Executive Command Center','Configure and Execute','Active Mission Monitors','Publisher Directory',
+    'Acquisition Operations','Procurement Inventory','Recurring Automation','Action Required',
+    'Lifecycle Control','System Health','Mission History','Completed Mission Outcomes','Operational Notifications'
   ]) assert.match(html, new RegExp(label, 'i'));
+  for(const removed of ['NAT-CORP Delivery','OTP Monitoring','Estimated Runtime','Estimated Opportunities','Mission Confidence']) assert.doesNotMatch(html,new RegExp(removed,'i'));
   assert.match(html, /Internal APROPOS operations/i);
   assert.match(html, /id="gatePassword"/);
   assert.match(html, /noindex,nofollow/i);
@@ -22,6 +22,7 @@ test('Executive dashboard invokes governed command functions', async () => {
   const dashboard = await text('assets/executive-command-center.js');
   assert.match(core, /command-executive-status/);
   assert.match(launch, /command-mission-control/);
+  assert.match(launch, /command-automated-task/);
   assert.match(dashboard, /command-executive-status/);
   assert.match(core, /x-dashboard-password/);
 });
@@ -44,12 +45,6 @@ test('orchestrator owns sequential five-agent progression', async () => {
 });
 
 test('browser assets contain no service role secret', async () => {
-  const files = [
-    await text('index.html'),
-    await text('assets/executive-core.js'),
-    await text('assets/executive-command-center.js'),
-    await text('assets/executive-launch.js'),
-    await text('assets/mission-workspace.js')
-  ].join('\n');
+  const files = [await text('index.html'),await text('assets/executive-core.js'),await text('assets/executive-command-center.js'),await text('assets/executive-launch.js'),await text('assets/mission-workspace.js')].join('\n');
   assert.doesNotMatch(files, /service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY/i);
 });
