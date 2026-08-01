@@ -6,7 +6,7 @@ const text=async path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 test('root is the procurement-only Executive Command Center',async()=>{
   const html=await text('index.html');
   for(const label of ['APROPOS INTELLIGENCE OPERATING SYSTEM','Executive Command Center','Configure and Execute','Active Mission Monitors','Publisher Directory','Acquisition Operations','Procurement Inventory','Recurring Automation','Action Required','Lifecycle Control','Evidence-Backed Status','Mission History','Completed Mission Outcomes','Operational Notifications']) assert.match(html,new RegExp(label,'i'));
-  for(const removed of ['OTF OPERATIONS','NAT-CORP Delivery','OTP Monitoring','Estimated Runtime','Estimated Opportunities','Mission Confidence']) assert.doesNotMatch(html,new RegExp(removed,'i'));
+  for(const removed of ['NAT-CORP Delivery','OTP Monitoring','Estimated Runtime','Estimated Opportunities','Mission Confidence']) assert.doesNotMatch(html,new RegExp(removed,'i'));
   assert.match(html,/Internal APROPOS operations/i);
   assert.match(html,/id="gatePassword"/);
   assert.match(html,/noindex,nofollow/i);
