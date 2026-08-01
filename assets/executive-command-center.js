@@ -1,4 +1,4 @@
-const ECC={data:null,timer:null};
+const ECC={data:null,timer:null,focusRunId:null,focusStartedAt:0,focusMissionType:null,focusState:null};
 const q=id=>document.getElementById(id);
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 const lower=v=>String(v??'').toLowerCase();
@@ -59,12 +59,50 @@ function uniqueRuns(data){
   const all=[...(data.active_runs||[]),...(data.attention_runs||[]),...(data.runs||[])];
   const map=new Map();
   all.forEach(r=>{if(r?.id&&!map.has(r.id))map.set(r.id,r)});
-  return[...map.values()].sort((a,b)=>ms(b.last_activity_at||b.updated_at||b.created_at)-ms(a.last_activity_at||a.updated_at||a.created_at)).slice(0,20);
+  return[...map.values()].sort((a,b)=>ms(b.last_activity_at||b.updated_at||b.created_at)-ms(a.last_activity_at||a.updated_at||a.created_at));
 }
+
+function focusedRun(data){
+  const runs=uniqueRuns(data);
+  if(ECC.focusRunId)return runs.find(r=>String(r.id)===String(ECC.focusRunId))||null;
+  if(!ECC.focusStartedAt)return null;
+  return runs.find(r=>{
+    const created=ms(r.started_at||r.created_at||r.updated_at);
+    const typeMatches=!ECC.focusMissionType||String(r.mission_type_key||'').toUpperCase()===ECC.focusMissionType;
+    const stateMatches=!ECC.focusState||String(r.state_code||'').toUpperCase()===ECC.focusState;
+    return created>=ECC.focusStartedAt-5000&&typeMatches&&stateMatches;
+  })||null;
+}
+
+function setMonitorMessage(message){
+  const monitor=q('eccTaskForceMonitor');
+  if(monitor)monitor.innerHTML=`<p class="ecc-empty">${esc(message)}</p>`;
+}
+
+window.eccBeginTaskForce=(missionType,stateCode)=>{
+  ECC.focusRunId=null;
+  ECC.focusStartedAt=Date.now();
+  ECC.focusMissionType=String(missionType||'').toUpperCase()||null;
+  ECC.focusState=String(stateCode||'').toUpperCase()||null;
+  setMonitorMessage('Launching the selected Task Force…');
+};
+
+window.eccFocusTaskForce=runId=>{
+  ECC.focusRunId=runId?String(runId):null;
+  eccRender();
+};
+
+window.eccClearTaskForceMonitor=()=>{
+  ECC.focusRunId=null;
+  ECC.focusStartedAt=0;
+  ECC.focusMissionType=null;
+  ECC.focusState=null;
+  setMonitorMessage('Execute a task to begin monitoring.');
+};
 
 async function eccLoad(){
   try{ECC.data=await invoke('command-executive-status',{});eccRender()}
-  catch(error){console.error('Executive status unavailable:',error);const monitor=q('eccTaskForceMonitor');if(monitor)monitor.innerHTML=`<p class="ecc-empty">Activity Monitor unavailable: ${esc(error.message||error)}</p>`}
+  catch(error){console.error('Executive status unavailable:',error);setMonitorMessage(`Activity Monitor unavailable: ${error.message||error}`)}
 }
 
 function eccRender(){
@@ -73,8 +111,15 @@ function eccRender(){
   if(updated)updated.textContent=`Updated ${new Date(ECC.data.generated_at||Date.now()).toLocaleTimeString()}`;
   const monitor=q('eccTaskForceMonitor');
   if(!monitor)return;
-  const runs=uniqueRuns(ECC.data);
-  monitor.innerHTML=runs.length?runs.map(taskForceCard).join(''):'<p class="ecc-empty">No Task Force Instances are available.</p>';
+  const run=focusedRun(ECC.data);
+  if(run&&!ECC.focusRunId)ECC.focusRunId=String(run.id);
+  monitor.innerHTML=run?taskForceCard(run):ECC.focusStartedAt
+    ?'<p class="ecc-empty">Task Force accepted. Waiting for its live monitor record…</p>'
+    :'<p class="ecc-empty">Execute a task to begin monitoring.</p>';
 }
 
-window.addEventListener('apie:authenticated',()=>{eccLoad();clearInterval(ECC.timer);ECC.timer=setInterval(eccLoad,15000)});
+window.addEventListener('apie:authenticated',()=>{
+  window.eccClearTaskForceMonitor();
+  clearInterval(ECC.timer);
+  ECC.timer=setInterval(eccLoad,15000);
+});
