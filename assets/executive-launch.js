@@ -47,6 +47,9 @@ function buildConfiguration(){
   }
   return cfg
 }
+function resolveRunId(result){
+  return result?.run?.id||result?.run_id||result?.command_run_id||result?.mission?.command_run_id||result?.execution?.run_id||result?.execution?.command_run_id||null;
+}
 window.addEventListener('apie:authenticated',configureTask);
 taskEl().addEventListener('change',configureTask);
 stateEl().addEventListener('change',configureTask);
@@ -59,7 +62,16 @@ document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{
   const config=buildConfiguration();
   const publisherLabel=config.publisher_name||'ALL';
   const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${selectedText(taskEl())} — ${stateCode==='ALL'?'All States':selectedText(stateEl())} — Publisher ${publisherLabel}`,mission_config:config,...config};
+  window.eccBeginTaskForce?.(missionType,stateCode==='ALL'?null:stateCode);
   msg.textContent='APIE is resolving configuration and executing the Task Force…';
-  try{const r=await invoke(task.operation,payload);msg.textContent=`Task Force launched. ${r.execution?.status||r.run?.status||'Monitoring started'}.`;await eccLoad()}
-  catch(err){msg.textContent=err.message}
+  try{
+    const r=await invoke(task.operation,payload);
+    const runId=resolveRunId(r);
+    window.eccFocusTaskForce?.(runId);
+    msg.textContent=`Task Force launched. ${r.execution?.status||r.run?.status||'Monitoring started'}.`;
+    await eccLoad();
+  }catch(err){
+    window.eccClearTaskForceMonitor?.();
+    msg.textContent=err.message;
+  }
 });
