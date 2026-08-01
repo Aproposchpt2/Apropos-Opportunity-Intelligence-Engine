@@ -17,10 +17,49 @@ const escAttr=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 function selectedText(el){return el?.selectedOptions?.[0]?.textContent?.trim()||''}
 function setAgent(agent=''){document.getElementById('eccAgent').value=agent;document.getElementById('eccAgentDisplay').value=agent||'Select a task'}
 function renderField(field){if(!field)return'';if(field.type==='select')return `<label>${escAttr(field.label)}<select id="eccDynamicField" data-key="${escAttr(field.id)}" required><option value="">Select ${escAttr(field.label.toLowerCase())}</option>${field.options.map(([v,l])=>`<option value="${escAttr(v)}">${escAttr(l)}</option>`).join('')}</select></label>`;return''}
-async function renderPublisherSelector(){const state=stateEl().value;if(!state||state==='ALL'){configEl().innerHTML='<label>Publishing Agency<select disabled><option>Select one state first</option></select></label>';return}configEl().innerHTML='<label>Publishing Agency<select disabled><option>Loading publishing agencies…</option></select></label>';try{const d=await invoke('command-publisher-options',{state_code:state});const rows=d.publishers||[];configEl().innerHTML=`<label>Publishing Agency<select id="eccPublisher" required><option value="">Select publishing agency</option>${rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}">${escAttr(p.publisher_name)} — ${escAttr(p.acquisition_method||'AUTO')}</option>`).join('')}</select><small>${rows.length?'APIE will resolve the acquisition engine and generate execution instructions.':'No publisher intelligence exists for this state. Run Publisher Discovery first.'}</small></label>`}catch(err){configEl().innerHTML=`<p class="ecc-message">${escAttr(err.message)}</p>`}}
-async function configureTask(){const task=TASKS[taskEl().value];setAgent(task?.agent||'');configEl().innerHTML='';stateEl().required=Boolean(task&&task.state==='required');const all=stateEl().querySelector('option[value="ALL"]');if(all)all.disabled=Boolean(task&&task.state==='required');if(!task)return;if(task.publisher)await renderPublisherSelector();else configEl().innerHTML=renderField(task.field)}
-function buildConfiguration(){const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','TARGET','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false};const dynamic=document.getElementById('eccDynamicField');if(dynamic)cfg[dynamic.dataset.key]=dynamic.value;const publisher=document.getElementById('eccPublisher');if(publisher?.value){const o=publisher.selectedOptions[0];cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null}return cfg}
+async function renderPublisherSelector(){
+  const state=stateEl().value;
+  if(!state||state==='ALL'){
+    configEl().innerHTML='<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option></select><small>Select a specific state to load individual publishers.</small></label>';
+    return;
+  }
+  configEl().innerHTML='<label>Publisher<select id="eccPublisher" disabled><option value="ALL" selected>ALL</option></select><small>Loading publishers…</small></label>';
+  try{
+    const d=await invoke('command-publisher-options',{state_code:state});
+    const rows=d.publishers||[];
+    configEl().innerHTML=`<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option>${rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}">${escAttr(p.publisher_name)} — ${escAttr(p.acquisition_method||'AUTO')}</option>`).join('')}</select><small>ALL is the default. Select one publisher only when narrower execution is required.</small></label>`;
+  }catch(err){configEl().innerHTML=`<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option></select><small>${escAttr(err.message)}</small></label>`}
+}
+async function configureTask(){
+  const task=TASKS[taskEl().value];setAgent(task?.agent||'');configEl().innerHTML='';
+  stateEl().required=Boolean(task&&task.state==='required');
+  const all=stateEl().querySelector('option[value="ALL"]');if(all)all.disabled=Boolean(task&&task.state==='required');
+  if(!task)return;
+  if(task.publisher)await renderPublisherSelector();else configEl().innerHTML=renderField(task.field)
+}
+function buildConfiguration(){
+  const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','TARGET','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false};
+  const dynamic=document.getElementById('eccDynamicField');if(dynamic)cfg[dynamic.dataset.key]=dynamic.value;
+  const publisher=document.getElementById('eccPublisher');
+  if(publisher){
+    if(publisher.value==='ALL'){cfg.publisher_scope='ALL';cfg.publisher_id=null;cfg.publisher_name='ALL';cfg.acquisition_method='AUTO'}
+    else if(publisher.value){const o=publisher.selectedOptions[0];cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null}
+  }
+  return cfg
+}
 window.addEventListener('apie:authenticated',configureTask);
 taskEl().addEventListener('change',configureTask);
 stateEl().addEventListener('change',configureTask);
-document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{e.preventDefault();const msg=document.getElementById('eccLaunchMessage'),missionType=taskEl().value,task=TASKS[missionType],stateCode=stateEl().value,agent=document.getElementById('eccAgent').value;if(!task||!agent){msg.textContent='Select a task before execution.';return}if(task.state==='required'&&(!stateCode||stateCode==='ALL')){msg.textContent='Select one state for this task.';return}const dynamic=document.getElementById('eccDynamicField');if(dynamic&&!dynamic.value){msg.textContent=`Select ${dynamic.closest('label').childNodes[0].textContent.trim()}.`;return}const publisher=document.getElementById('eccPublisher');if(task.publisher&&!publisher?.value){msg.textContent='Select a publishing agency.';return}const config=buildConfiguration();const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${stateCode==='ALL'?'Enterprise':selectedText(stateEl())} — ${selectedText(taskEl())}`,mission_config:config,...config};msg.textContent='APIE is resolving configuration and executing the mission…';try{const r=await invoke(task.operation,payload);msg.textContent=`Executed. ${r.execution?.status||r.run?.status||'Mission recorded'}. Monitoring has started.`;await eccLoad()}catch(err){msg.textContent=err.message}});
+document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const msg=document.getElementById('eccLaunchMessage'),missionType=taskEl().value,task=TASKS[missionType],stateCode=stateEl().value,agent=document.getElementById('eccAgent').value;
+  if(!task||!agent){msg.textContent='Select a task before execution.';return}
+  if(task.state==='required'&&(!stateCode||stateCode==='ALL')){msg.textContent='Select one state for this task.';return}
+  const dynamic=document.getElementById('eccDynamicField');if(dynamic&&!dynamic.value){msg.textContent=`Select ${dynamic.closest('label').childNodes[0].textContent.trim()}.`;return}
+  const config=buildConfiguration();
+  const publisherLabel=config.publisher_name||'ALL';
+  const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${selectedText(taskEl())} — ${stateCode==='ALL'?'All States':selectedText(stateEl())} — Publisher ${publisherLabel}`,mission_config:config,...config};
+  msg.textContent='APIE is resolving configuration and executing the Task Force…';
+  try{const r=await invoke(task.operation,payload);msg.textContent=`Task Force launched. ${r.execution?.status||r.run?.status||'Monitoring started'}.`;await eccLoad()}
+  catch(err){msg.textContent=err.message}
+});
