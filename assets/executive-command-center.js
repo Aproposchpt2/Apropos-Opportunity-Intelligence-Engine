@@ -5,6 +5,7 @@ const lower=v=>String(v??'').toLowerCase();
 const num=v=>Number(v||0).toLocaleString();
 const when=v=>v?new Date(v).toLocaleString():'—';
 const ms=v=>v?new Date(v).getTime():0;
+const pct=(a,b)=>Number(b)>0?`${Math.round((Number(a||0)/Number(b))*100)}%`:'0%';
 const cls=s=>`ecc-${String(s||'unknown').toLowerCase().replaceAll('_','-').replaceAll(' ','-')}`;
 
 function resultLabel(r){
@@ -41,11 +42,11 @@ function elapsed(r){
 }
 
 const STAGES=[
-  {key:'publisher-discovery',label:'Publisher Discovery',range:[0,25]},
-  {key:'publisher-validation',label:'Publisher Validation',range:[25,45]},
-  {key:'assignment-creation',label:'Assignment Creation',range:[45,65]},
-  {key:'acquisition-discovery',label:'Acquisition Discovery',range:[65,95]},
-  {key:'mission-completion',label:'Mission Completion',range:[95,100]}
+  {key:'publisher-discovery',label:'Publisher Discovery',agent:'Publisher Discovery Agent',range:[0,25]},
+  {key:'publisher-validation',label:'Publisher Validation',agent:'Publisher Validation Engine',range:[25,45]},
+  {key:'assignment-creation',label:'Assignment Creation',agent:'Assignment Orchestrator',range:[45,65]},
+  {key:'acquisition-discovery',label:'Acquisition Discovery',agent:'Acquisition Operations',range:[65,95]},
+  {key:'mission-completion',label:'Mission Completion',agent:'Mission Orchestrator',range:[95,100]}
 ];
 
 function currentStageIndex(r){
@@ -55,8 +56,25 @@ function currentStageIndex(r){
   if(stage.includes('ASSIGNMENT')||stage.includes('ACQUISITION_QUEUED')||stage.includes('HANDOFF'))return 2;
   if(stage.includes('RESOLVING_PUBLISHERS')||stage.includes('ACQUIRING')||stage.includes('ACQUISITION'))return 3;
   if(stage.includes('COMPLETE')||stage.includes('FAILED')||stage.includes('BLOCKED'))return 4;
-  const pct=Number(r.progress_value||0);
-  if(pct<25)return 0;if(pct<45)return 1;if(pct<65)return 2;if(pct<95)return 3;return 4;
+  const progress=Number(r.progress_value||0);
+  if(progress<25)return 0;if(progress<45)return 1;if(progress<65)return 2;if(progress<95)return 3;return 4;
+}
+
+function stageDetail(r,index,status){
+  const evidence=r.execution_evidence||{};
+  const discovered=Number(records(r,'records_discovered',0));
+  const accepted=Number(records(r,'records_accepted',discovered));
+  const acquired=Number(records(r,'records_acquired',0));
+  const processed=Number(evidence.publishers_processed||accepted||0);
+  const warnings=Number(r.warning_count||evidence.failures||0);
+  if(status==='PENDING')return'Waiting for the preceding stage';
+  if(index===0)return status==='RUNNING'?'Researching official publisher sources':`${num(discovered)} publishers discovered`;
+  if(index===1)return status==='RUNNING'?'Verifying official sources and acquisition access':`${num(accepted)} publishers validated`;
+  if(index===2)return status==='RUNNING'?'Creating and refreshing READY assignments':`${num(accepted)} assignments ready`;
+  if(index===3)return status==='RUNNING'?`${num(acquired)} records acquired so far`:`${num(Math.max(0,processed-warnings))} publishers succeeded · ${num(acquired)} records acquired`;
+  if(status==='WARNING')return`${num(warnings)} acquisition warnings require report review`;
+  if(status==='FAIL'||status==='BLOCKED')return blockerReason(r)||'Mission requires attention';
+  return resultLabel(r)==='PASS'?'Mission completed successfully':'Mission outcome recorded';
 }
 
 function stageModels(r){
@@ -76,12 +94,22 @@ function stageModels(r){
       const [start,end]=stage.range;
       progress=Math.max(4,Math.min(100,Math.round(((overall-start)/Math.max(1,end-start))*100)));
     }
-    return{...stage,index:index+1,status,progress};
+    return{...stage,index:index+1,status,progress,detail:stageDetail(r,index,status)};
   });
 }
 
 function stageMonitor(r){
-  return`<section class="ecc-stage-monitor" aria-label="Five-stage mission progress">${stageModels(r).map(stage=>`<div class="ecc-stage-row ${cls(stage.status)}"><div class="ecc-stage-heading"><span class="ecc-stage-number">${stage.index}</span><div><b>${esc(stage.label)}</b><small>${esc(stage.status.replaceAll('_',' '))}</small></div><strong>${stage.progress}%</strong></div><progress class="ecc-stage-progress" max="100" value="${stage.progress}" aria-label="${esc(stage.label)} progress">${stage.progress}%</progress></div>`).join('')}</section>`;
+  return`<section class="ecc-stage-monitor" aria-label="Five-stage mission progress">${stageModels(r).map(stage=>`<div class="ecc-stage-row ${cls(stage.status)}"><div class="ecc-stage-heading"><span class="ecc-stage-number">${stage.index}</span><div><b>${esc(stage.label)}</b><small>${esc(stage.status.replaceAll('_',' '))}</small></div><strong>${stage.progress}%</strong></div><div class="ecc-stage-detail"><span>${esc(stage.detail)}</span><small>${esc(stage.agent)}</small></div><progress class="ecc-stage-progress" max="100" value="${stage.progress}" aria-label="${esc(stage.label)} progress">${stage.progress}%</progress></div>`).join('')}</section>`;
+}
+
+function missionAnalytics(r){
+  const evidence=r.execution_evidence||{};
+  const processed=Number(evidence.publishers_processed||records(r,'records_accepted',records(r,'records_discovered',0))||0);
+  const warnings=Number(r.warning_count||evidence.failures||0);
+  const successful=Math.max(0,processed-warnings);
+  const acquired=Number(records(r,'records_acquired',0));
+  if(!processed)return'';
+  return`<section class="ecc-mission-analytics" aria-label="Mission performance"><span>Publishers Processed<b>${num(processed)}</b></span><span>Publishers Successful<b>${num(successful)}</b></span><span>Publisher Success Rate<b>${pct(successful,processed)}</b></span><span>Acquisition Yield<b>${pct(acquired,processed)}</b></span></section>`;
 }
 
 function taskForceCard(r){
@@ -96,8 +124,8 @@ function taskForceCard(r){
   const reason=blockerReason(r);
   const reasonMarkup=complete&&reason?`<div class="ecc-result-reason"><span>${result==='BLOCKED'?'Blocker':'Result Detail'}</span><b>${esc(reason)}</b></div>`:'';
   const details=complete
-    ?`<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>${reasonMarkup}`
-    :`<div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Overall Progress<b>${Math.max(0,Math.min(100,Number(r.progress_value||0)))}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Last Activity<b>${when(r.last_activity_at||r.updated_at)}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
+    ?`${missionAnalytics(r)}<div class="ecc-result-grid"><span>Result<b>${esc(result)}</b></span><span>Records Discovered<b>${num(discovered)}</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Records Accepted<b>${num(accepted)}</b></span><span>Records Rejected<b>${num(rejected)}</b></span><span>Completed<b>${when(r.completed_at||r.updated_at)}</b></span><span>Execution Time<b>${elapsed(r)}</b></span></div>${reasonMarkup}`
+    :`<div class="ecc-result-grid"><span>Status<b>${esc(result)}</b></span><span>Current Stage<b>${esc(r.current_stage||'Initializing')}</b></span><span>Overall Progress<b>${Math.max(0,Math.min(100,Number(r.progress_value||0)))}%</b></span><span>Records Acquired<b>${num(acquired)}</b></span><span>Active Agent<b>${esc(stageModels(r).find(stage=>stage.status==='RUNNING')?.agent||'Mission Orchestrator')}</b></span><span>Elapsed Time<b>${elapsed(r)}</b></span></div>`;
   return`<article class="ecc-task-force-card ${cls(result)}"><header><div><small>TASK FORCE INSTANCE · ${esc(instanceId(r))}</small><h3>${esc(heading)}</h3></div><span class="status-pill ${cls(result)}">${esc(result)}</span></header>${stageMonitor(r)}${details}<a class="ecc-report-link" href="/missions/?id=${encodeURIComponent(r.id)}">VIEW REPORT</a></article>`;
 }
 
