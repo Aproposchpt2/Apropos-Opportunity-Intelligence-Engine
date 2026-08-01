@@ -1,0 +1,162 @@
+import { response, parseBody, requireDashboardAuth, db, env } from './_shared/native-runtime.js';
+
+const now = () => new Date().toISOString();
+const txt = value => String(value ?? '').trim();
+const arr = value => Array.isArray(value) ? value : [];
+
+function outputText(data) {
+  if (typeof data?.output_text === 'string') return data.output_text;
+  for (const item of arr(data?.output)) {
+    for (const part of arr(item?.content)) {
+      if (part?.type === 'output_text' && typeof part.text === 'string') return part.text;
+    }
+  }
+  return '';
+}
+
+function parseJson(text) {
+  const cleaned = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try { return JSON.parse(cleaned); }
+  catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error('Publisher research returned invalid JSON.');
+  }
+}
+
+async function failRun(commandRunId, discoveryRunId, message) {
+  const timestamp = now();
+  await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'FAILED', current_stage: 'RESEARCH_FAILED', completed_at: timestamp, updated_at: timestamp, evidence: { error: message, runtime: 'NETLIFY_NATIVE' } })
+  }).catch(() => null);
+  await db(`command_runs?id=eq.${commandRunId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'failed', aadp_state: 'FAILED', current_stage: 'RESEARCH_FAILED', progress_value: 100, failure_count: 1, action_required: true, completed_at: timestamp, last_activity_at: timestamp, result_summary: message })
+  }).catch(() => null);
+}
+
+export const handler = async event => {
+  if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
+  if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
+
+  const body = parseBody(event);
+  const commandRunId = txt(body.command_run_id);
+  const stateCode = txt(body.state_code).toUpperCase();
+  const discoveryScope = txt(body.discovery_scope || 'STATE_AND_LOCAL');
+  if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'command_run_id and state_code are required' });
+
+  let discoveryRunId = null;
+  try {
+    const startedAt = now();
+    await db(`command_runs?id=eq.${commandRunId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'running', aadp_state: 'RUNNING', current_stage: 'PUBLISHER_DISCOVERY', progress_value: 15, last_activity_at: startedAt, result_summary: 'Official-source publisher research in progress.' })
+    });
+
+    const discoveryRows = await db('publisher_discovery_runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        command_run_id: commandRunId,
+        state_code: stateCode,
+        mission_name: `${stateCode} — Publisher Discovery`,
+        discovery_scope: discoveryScope,
+        organization_types: ['State Agencies','Counties','Cities / Municipalities','Universities','Community Colleges','School Districts','Transportation Authorities','Public Utilities','Water Districts','Special Districts','Public Authorities','Independent Agencies'],
+        intelligence_provider: 'OPENAI_WEB_SEARCH',
+        operator_name: 'Executive Command Center',
+        governance: { official_source_research_required: true, duplicate_registry_detection_required: true, human_review_before_registry_admission_required: true },
+        status: 'RUNNING',
+        current_stage: 'PUBLISHER_DISCOVERY',
+        started_at: startedAt,
+        evidence: { source: 'EXECUTIVE_COMMAND_CENTER', runtime: 'NETLIFY_NATIVE' }
+      })
+    });
+    const discoveryRun = discoveryRows?.[0];
+    discoveryRunId = discoveryRun?.id;
+    if (!discoveryRunId) throw new Error('Publisher discovery run creation failed.');
+
+    const apiKey = env('OPENAI_API_KEY');
+    if (!apiKey) throw new Error('Autonomous publisher research provider is not configured.');
+    const model = env('OPENAI_DISCOVERY_MODEL') || 'gpt-5.6-terra';
+    const prompt = `Research official public procurement publishers in ${stateCode}. Scope: ${discoveryScope}. Include relevant state agencies, counties, cities and municipalities, universities, community colleges, school districts, transportation authorities, public utilities, water districts, special districts, public authorities and independent agencies. Use official organizational sources only. Do not invent facts. Return ONLY JSON in this exact shape: {"candidates":[{"publisher_name":"","organization_type":"","official_website":"","procurement_website":"","acquisition_method":"API|PUBLIC_SEARCH|PUBLIC_PORTAL|DOCUMENT_FEED|UNASSESSED","search_endpoint":"","vendor_registration_url":"","procurement_platform":"","technology_vendor":"","registration_required":false,"official_sources":[""],"official_source_verified":true}]}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    let providerResponse;
+    try {
+      providerResponse = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, reasoning: { effort: 'low' }, tools: [{ type: 'web_search', search_context_size: 'low' }], input: prompt }),
+        signal: controller.signal
+      });
+    } finally { clearTimeout(timeout); }
+
+    const providerData = await providerResponse.json().catch(() => ({}));
+    if (!providerResponse.ok) throw new Error(`Publisher research failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
+    const parsed = parseJson(outputText(providerData));
+    const candidates = arr(parsed?.candidates).filter(candidate => txt(candidate?.publisher_name));
+    if (!candidates.length) throw new Error('Publisher research completed without candidate records.');
+
+    await db(`command_runs?id=eq.${commandRunId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ current_stage: 'DUPLICATE_CONTROL', progress_value: 50, last_activity_at: now(), records_discovered: candidates.length })
+    });
+
+    let staged = 0;
+    let duplicates = 0;
+    let verified = 0;
+    for (const candidate of candidates) {
+      const name = txt(candidate.publisher_name);
+      const sources = arr(candidate.official_sources).map(txt).filter(Boolean);
+      const sourceVerified = candidate.official_source_verified === true && sources.length > 0;
+      const existing = await db(`publisher_registry?publisher_name=eq.${encodeURIComponent(name)}&state_code=eq.${stateCode}&select=id`);
+      const duplicateId = existing?.[0]?.id || null;
+      if (duplicateId) duplicates++;
+      if (sourceVerified) verified++;
+      await db('publisher_discovery_candidates', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
+        body: JSON.stringify({
+          discovery_run_id: discoveryRunId,
+          publisher_name: name,
+          state_code: stateCode,
+          organization_type: txt(candidate.organization_type) || null,
+          official_website: txt(candidate.official_website) || null,
+          procurement_website: txt(candidate.procurement_website) || null,
+          acquisition_method: txt(candidate.acquisition_method) || 'UNASSESSED',
+          search_endpoint: txt(candidate.search_endpoint) || null,
+          vendor_registration_url: txt(candidate.vendor_registration_url) || null,
+          procurement_platform: txt(candidate.procurement_platform) || null,
+          technology_vendor: txt(candidate.technology_vendor) || null,
+          registration_required: typeof candidate.registration_required === 'boolean' ? candidate.registration_required : null,
+          official_sources: sources,
+          official_source_verified: sourceVerified,
+          duplicate_publisher_id: duplicateId,
+          duplicate_status: duplicateId ? 'EXISTING_REGISTRY_MATCH' : 'NO_MATCH',
+          review_status: sourceVerified ? 'PENDING_REVIEW' : 'RESEARCH_REQUIRED'
+        })
+      });
+      staged++;
+    }
+
+    const completedAt = now();
+    await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'PAUSED', current_stage: 'CANDIDATE_REVIEW', official_sources_identified: verified, publishers_presented: staged, updated_at: completedAt, evidence: { runtime: 'NETLIFY_NATIVE', candidates_staged: staged, duplicate_registry_matches: duplicates, official_sources_verified: verified, registry_records_created: 0, human_review_required: true } })
+    });
+    await db(`command_runs?id=eq.${commandRunId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'CANDIDATE_REVIEW', progress_value: 90, records_discovered: staged, records_acquired: staged, action_required: true, last_activity_at: completedAt, completed_at: completedAt, result_summary: `${staged} publisher candidates staged; human review required before registry admission and acquisition assignment readiness.`, execution_evidence: { runtime: 'NETLIFY_NATIVE', discovery_run_id: discoveryRunId, candidates_staged: staged, duplicate_registry_matches: duplicates, official_sources_verified: verified, human_review_required: true } })
+    });
+
+    return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, duplicate_registry_matches: duplicates, official_sources_verified: verified, human_review_required: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('command-publisher-discovery-worker-background failed', error);
+    if (discoveryRunId) await failRun(commandRunId, discoveryRunId, message);
+    else await db(`command_runs?id=eq.${commandRunId}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', aadp_state: 'FAILED', current_stage: 'RESEARCH_FAILED', progress_value: 100, failure_count: 1, action_required: true, completed_at: now(), last_activity_at: now(), result_summary: message }) }).catch(() => null);
+    return response(500, { error: message });
+  }
+};
