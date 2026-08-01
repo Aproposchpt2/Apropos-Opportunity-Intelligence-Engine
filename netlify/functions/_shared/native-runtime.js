@@ -37,35 +37,56 @@ export function requireDashboardAuth(event) {
   return suppliedDigest.length === expectedDigest.length && timingSafeEqual(suppliedDigest, expectedDigest);
 }
 
-export async function db(path, init = {}) {
-  const url = env('SUPABASE_URL').replace(/\/$/, '');
-  const key = env('SUPABASE_SERVICE_KEY');
+function databaseCredentials() {
+  const url = String(env('SUPABASE_URL') || '').trim().replace(/\/$/, '');
+  const key = String(env('SUPABASE_SERVICE_KEY') || env('SUPABASE_SERVICE_ROLE_KEY') || '').trim();
   if (!url || !key) throw new Error('Supabase database runtime configuration incomplete');
+  return { url, key };
+}
 
+function databaseHeaders(key, overrides = {}) {
+  const headers = {
+    apikey: key,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation'
+  };
+
+  // Legacy service_role keys are JWTs and may be used as Bearer tokens.
+  // Modern sb_secret_* keys are opaque API keys and must not be parsed as JWTs.
+  if (!key.startsWith('sb_secret_') && !key.startsWith('sb_publishable_')) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+
+  return { ...headers, ...overrides };
+}
+
+export async function db(path, init = {}) {
+  const { url, key } = databaseCredentials();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25000);
+
   try {
     const res = await fetch(`${url}/rest/v1/${path}`, {
       ...init,
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation',
-        ...(init.headers || {})
-      },
+      headers: databaseHeaders(key, init.headers || {}),
       signal: init.signal || controller.signal
     });
+
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; }
     catch { data = text; }
+
     if (!res.ok) {
       const detail = typeof data === 'object' && data
-        ? data.message || data.hint || data.details
+        ? data.message || data.hint || data.details || data.error
         : String(data || '');
-      throw new Error(detail || `Database request failed (${res.status})`);
+      const error = new Error(detail || `Database request failed (${res.status})`);
+      error.status = res.status;
+      error.code = typeof data === 'object' && data ? data.code || null : null;
+      throw error;
     }
+
     return data;
   } finally {
     clearTimeout(timeout);
