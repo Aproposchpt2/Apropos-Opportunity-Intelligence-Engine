@@ -54,6 +54,15 @@ test('dashboard invokes password-protected executive command functions',async()=
   assert.match(dashboard,/setInterval\(eccLoad,15000\)/);
 });
 
+test('Executive Dashboard cards and fields remain dark-theme compatible',async()=>{
+  const css=await text('assets/executive-command-center.css');
+  assert.match(css,/\.ecc-shell\{color-scheme:dark\}/);
+  assert.match(css,/\.ecc-shell \.ecc-mission-card[\s\S]*background:rgba\(255,255,255,\.035\)/);
+  assert.match(css,/\.ecc-shell \.ecc-launch select,[\s\S]*background:var\(--panel2\);color:var\(--text\)/);
+  assert.match(css,/\.ecc-shell \.ecc-state-selector button[\s\S]*background:var\(--panel2\);color:var\(--text\)/);
+  assert.doesNotMatch(css,/\.ecc-shell \.ecc-mission-card[^}]*background:#fff/);
+});
+
 test('mission workspace provides visual stage monitoring and Publisher Discovery candidate review',async()=>{
   const html=await text('missions/index.html');
   const js=await text('assets/mission-workspace.js');
