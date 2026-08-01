@@ -101,7 +101,17 @@ export const handler = async event => {
 
     await db(`command_runs?id=eq.${commandRunId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ current_stage: 'DUPLICATE_CONTROL', progress_value: 50, last_activity_at: now(), records_discovered: candidates.length })
+      body: JSON.stringify({
+        current_stage: 'DUPLICATE_CONTROL',
+        progress_value: 50,
+        last_activity_at: now(),
+        execution_evidence: {
+          runtime: 'NETLIFY_NATIVE',
+          discovery_run_id: discoveryRunId,
+          records_discovered: candidates.length,
+          candidates_identified: candidates.length
+        }
+      })
     });
 
     let staged = 0;
@@ -148,7 +158,27 @@ export const handler = async event => {
     });
     await db(`command_runs?id=eq.${commandRunId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'CANDIDATE_REVIEW', progress_value: 90, records_discovered: staged, records_acquired: staged, action_required: true, last_activity_at: completedAt, completed_at: completedAt, result_summary: `${staged} publisher candidates staged; human review required before registry admission and acquisition assignment readiness.`, execution_evidence: { runtime: 'NETLIFY_NATIVE', discovery_run_id: discoveryRunId, candidates_staged: staged, duplicate_registry_matches: duplicates, official_sources_verified: verified, human_review_required: true } })
+      body: JSON.stringify({
+        status: 'interrupted',
+        aadp_state: 'PAUSED',
+        current_stage: 'CANDIDATE_REVIEW',
+        progress_value: 90,
+        records_acquired: staged,
+        action_required: true,
+        last_activity_at: completedAt,
+        completed_at: completedAt,
+        result_summary: `${staged} publisher candidates staged; human review required before registry admission and acquisition assignment readiness.`,
+        execution_evidence: {
+          runtime: 'NETLIFY_NATIVE',
+          discovery_run_id: discoveryRunId,
+          records_discovered: staged,
+          records_acquired: staged,
+          candidates_staged: staged,
+          duplicate_registry_matches: duplicates,
+          official_sources_verified: verified,
+          human_review_required: true
+        }
+      })
     });
 
     return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, duplicate_registry_matches: duplicates, official_sources_verified: verified, human_review_required: true });
