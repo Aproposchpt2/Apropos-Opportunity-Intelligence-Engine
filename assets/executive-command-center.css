@@ -1,1 +1,35 @@
 .ecc-shell{max-width:1500px;margin:0 auto}.ecc-command-primary{border-top:4px solid currentColor}.ecc-launch{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1rem;align-items:end}.ecc-launch label{display:grid;gap:.45rem;font-size:.75rem;letter-spacing:.08em;text-transform:uppercase}.ecc-launch select,.ecc-launch input{width:100%;min-height:46px;padding:.7rem .8rem;border:1px solid rgba(30,45,60,.24);border-radius:4px;background:#fff;color:#182331;font:inherit}.ecc-launch input[readonly]{background:#f4f5f6}.ecc-task-configuration{display:contents}.ecc-message{margin:.85rem 0 0;color:#485666}.ecc-two{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}.ecc-totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem}.ecc-totals article,.ecc-lifecycle-grid article{padding:1rem;border:1px solid rgba(30,45,60,.12);background:#f7f8f9}.ecc-totals span,.ecc-lifecycle-grid span{display:block;font-size:.72rem;letter-spacing:.07em;text-transform:uppercase}.ecc-totals strong,.ecc-lifecycle-grid strong{display:block;margin-top:.35rem;font-size:1.65rem}.ecc-list{display:grid;gap:.65rem}.ecc-list>article{display:flex;justify-content:space-between;gap:1rem;padding:.8rem 0;border-bottom:1px solid rgba(30,45,60,.1)}.ecc-list small{display:block;margin-top:.25rem}.ecc-missions{display:grid;gap:1rem}.ecc-mission-card{padding:1rem;border:1px solid rgba(30,45,60,.14);background:#fff}.ecc-mission-card header,.ecc-state-inventory article header{display:flex;justify-content:space-between;gap:1rem}.ecc-progress{height:7px;margin:.9rem 0;background:#e7eaed;overflow:hidden}.ecc-progress i{display:block;height:100%;background:currentColor}.ecc-mission-meta{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.7rem;font-size:.75rem}.ecc-mission-meta b{display:block;margin-top:.2rem}.ecc-state-selector{display:flex;gap:.5rem;overflow:auto;padding-bottom:.75rem}.ecc-state-selector button{white-space:nowrap;padding:.55rem .75rem;border:1px solid rgba(30,45,60,.16);background:#fff}.ecc-state-selector button.active{font-weight:600;border-color:currentColor}.ecc-state-inventory{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}.ecc-state-inventory>article{padding:1rem;border:1px solid rgba(30,45,60,.12)}.ecc-state-metrics{display:grid;grid-template-columns:1fr 1fr;gap:.55rem;margin-top:.8rem;font-size:.78rem}.ecc-health{display:grid;gap:.6rem}.ecc-health article{padding:.75rem;border-left:3px solid currentColor;background:#f7f8f9}.ecc-health span,.ecc-health small{display:block}.ecc-health strong{display:block;margin:.2rem 0}.ecc-lifecycle-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem}.ecc-notifications{display:grid;gap:.7rem}.ecc-notifications article{padding:.8rem;border:1px solid rgba(30,45,60,.12)}.ecc-notifications .needs-action{border-left:4px solid #9a5b00}.ecc-empty{color:#687583;font-style:italic}.state-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.4rem;background:#8c98a4}@media(max-width:1050px){.ecc-launch{grid-template-columns:1fr 1fr}.ecc-two{grid-template-columns:1fr}.ecc-state-inventory{grid-template-columns:1fr 1fr}.ecc-mission-meta{grid-template-columns:repeat(3,1fr)}}@media(max-width:680px){.ecc-launch{grid-template-columns:1fr}.ecc-totals,.ecc-state-inventory,.ecc-lifecycle-grid{grid-template-columns:1fr}.ecc-mission-meta{grid-template-columns:1fr 1fr}.command-header{align-items:flex-start}.header-status{text-align:left}.ecc-list>article{display:block}.ecc-list>article>div+div{margin-top:.5rem}}
+
+/* Executive Command Center is a dark control surface. Keep all dynamically
+   rendered cards and form fields on the same theme so light text never lands
+   on a white browser surface. */
+.ecc-shell{color-scheme:dark}
+.ecc-shell .ecc-launch select,
+.ecc-shell .ecc-launch input{border-color:var(--line);background:var(--panel2);color:var(--text)}
+.ecc-shell .ecc-launch input[readonly]{background:rgba(255,255,255,.035);color:var(--muted)}
+.ecc-shell .ecc-message{color:var(--muted)}
+.ecc-shell .ecc-mission-card,
+.ecc-shell .ecc-totals article,
+.ecc-shell .ecc-lifecycle-grid article,
+.ecc-shell .ecc-health article,
+.ecc-shell .ecc-state-inventory>article,
+.ecc-shell .ecc-notifications article{border-color:var(--line);background:rgba(255,255,255,.035);color:var(--text)}
+.ecc-shell .ecc-mission-card *,
+.ecc-shell .ecc-totals article *,
+.ecc-shell .ecc-lifecycle-grid article *,
+.ecc-shell .ecc-health article *,
+.ecc-shell .ecc-state-inventory>article *,
+.ecc-shell .ecc-notifications article *{color:inherit}
+.ecc-shell .ecc-mission-card small,
+.ecc-shell .ecc-mission-meta span,
+.ecc-shell .ecc-totals span,
+.ecc-shell .ecc-lifecycle-grid span,
+.ecc-shell .ecc-health span,
+.ecc-shell .ecc-health small{color:var(--muted)}
+.ecc-shell .ecc-progress{background:#061633;border:1px solid var(--line);border-radius:999px}
+.ecc-shell .ecc-progress i{background:linear-gradient(90deg,var(--info),var(--light))}
+.ecc-shell .ecc-state-selector button{border-color:var(--line);background:var(--panel2);color:var(--text)}
+.ecc-shell .ecc-state-selector button.active{background:rgba(138,183,255,.14);border-color:var(--info)}
+.ecc-shell .ecc-list>article{border-bottom-color:var(--line)}
+.ecc-shell .ecc-empty{color:var(--muted)}
+.ecc-shell a{color:var(--light)}
