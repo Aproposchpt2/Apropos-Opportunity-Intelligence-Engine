@@ -30,12 +30,9 @@
   <div>
     <p class="eyebrow">APROPOS INTELLIGENCE OPERATING SYSTEM</p>
     <h1>Executive Command Center</h1>
-    <p class="subtitle">Observe. Authorize. Monitor. Intervene only when required.</p>
+    <p class="subtitle">Select the objective. APIE configures and executes the operation.</p>
   </div>
-  <nav class="header-status" aria-label="Executive navigation">
-    <a class="otf-nav-cta" href="https://natcorp.aproposgroupllc.com/opportunity-fulfillment">
-      <span>OTF OPERATIONS</span><strong>Open Workspace</strong><b aria-hidden="true">↗</b>
-    </a>
+  <nav class="header-status" aria-label="Executive status">
     <span>ENTERPRISE STATUS</span>
     <strong id="systemStatus" class="status-pill status-idle">INITIALIZING</strong>
     <small id="eccUpdated">Not refreshed</small>
@@ -43,83 +40,90 @@
 </header>
 
 <main>
-  <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">STATE OPERATIONS</p><h2>State Operations Context</h2></div></div>
-    <div id="eccStateSelector" class="ecc-state-selector"></div>
+  <section class="panel ecc-command-primary">
+    <div class="panel-heading">
+      <div><p class="section-kicker">MISSION CONTROL</p><h2>Configure and Execute</h2></div>
+      <span class="status-pill status-healthy">Operator Control</span>
+    </div>
+    <form id="eccLaunchForm" class="ecc-launch">
+      <label>Task
+        <select id="eccMissionType" required>
+          <option value="">Select task</option>
+          <option value="PUBLISHER_DISCOVERY">Publisher Discovery</option>
+          <option value="ACQUISITION_DISCOVERY">Acquisition Discovery</option>
+          <option value="STATE_MISSION">State Operations</option>
+          <option value="AADP_PROCESSING">AADP Processing</option>
+          <option value="AOIE_ANALYSIS">AOIE Analysis</option>
+          <option value="PROCUREMENT_INVENTORY">Procurement Inventory Maintenance</option>
+          <option value="CONTRACT_LIFECYCLE">Contract Lifecycle</option>
+          <option value="BUSINESS_DEVELOPMENT_DISCOVERY">Business Development Discovery</option>
+          <option value="OPPORTUNITY_PARTNER_DISCOVERY">Opportunity Partner Discovery</option>
+          <option value="INSTITUTIONAL_BUYER_DISCOVERY">Institutional Buyer Discovery</option>
+        </select>
+      </label>
+      <label>State
+        <select id="eccMissionState" required>
+          <option value="">Select state</option>
+          <option value="ALL">All States</option>
+          <option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option><option value="AR">Arkansas</option><option value="CA">California</option><option value="CO">Colorado</option><option value="CT">Connecticut</option><option value="DE">Delaware</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="HI">Hawaii</option><option value="ID">Idaho</option><option value="IL">Illinois</option><option value="IN">Indiana</option><option value="IA">Iowa</option><option value="KS">Kansas</option><option value="KY">Kentucky</option><option value="LA">Louisiana</option><option value="ME">Maine</option><option value="MD">Maryland</option><option value="MA">Massachusetts</option><option value="MI">Michigan</option><option value="MN">Minnesota</option><option value="MS">Mississippi</option><option value="MO">Missouri</option><option value="MT">Montana</option><option value="NE">Nebraska</option><option value="NV">Nevada</option><option value="NH">New Hampshire</option><option value="NJ">New Jersey</option><option value="NM">New Mexico</option><option value="NY">New York</option><option value="NC">North Carolina</option><option value="ND">North Dakota</option><option value="OH">Ohio</option><option value="OK">Oklahoma</option><option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="RI">Rhode Island</option><option value="SC">South Carolina</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option><option value="TX">Texas</option><option value="UT">Utah</option><option value="VT">Vermont</option><option value="VA">Virginia</option><option value="WA">Washington</option><option value="WV">West Virginia</option><option value="WI">Wisconsin</option><option value="WY">Wyoming</option>
+        </select>
+      </label>
+      <div id="eccTaskConfiguration" class="ecc-task-configuration" aria-live="polite"></div>
+      <label>Execution Agent
+        <input id="eccAgentDisplay" type="text" value="Select a task" readonly>
+        <input id="eccAgent" type="hidden" value="">
+      </label>
+      <button type="submit" class="primary-action">EXECUTE</button>
+    </form>
+    <p id="eccLaunchMessage" class="ecc-message">Select a task and operating scope. APIE will resolve the technical configuration.</p>
   </section>
 
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">EXECUTIVE OVERVIEW</p><h2>Authoritative Operating Position</h2></div></div>
-    <div id="eccTotals" class="ecc-totals"></div>
+    <div class="panel-heading"><div><p class="section-kicker">ACTIVE OPERATIONS</p><h2>Mission Monitor</h2></div><span class="status-pill status-running">Live · 15s</span></div>
+    <div id="eccActiveMissions" class="ecc-missions"></div>
   </section>
 
   <section class="ecc-two">
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">MISSION TYPE CONTROL</p><h2>Authorize & Execute</h2></div><span class="status-pill status-healthy">Operator Control</span></div>
-      <form id="eccLaunchForm" class="ecc-launch">
-        <label>Task<select id="eccMissionType"><option value="">Select task</option><option value="PUBLISHER_DISCOVERY">Publisher Discovery</option><option value="ACQUISITION_DISCOVERY">Acquisition Discovery</option><option value="BUSINESS_DEVELOPMENT_DISCOVERY">Business Development Discovery</option><option value="OPPORTUNITY_PARTNER_DISCOVERY">Opportunity Partner Discovery</option><option value="INSTITUTIONAL_BUYER_DISCOVERY">Institutional Buyer Discovery</option><option value="STATE_MISSION">State Mission</option></select></label>
-        <label>State<select id="eccMissionState"><option value="">Select state</option><option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option><option value="AR">Arkansas</option><option value="CA">California</option><option value="CO">Colorado</option><option value="CT">Connecticut</option><option value="DE">Delaware</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="HI">Hawaii</option><option value="ID">Idaho</option><option value="IL">Illinois</option><option value="IN">Indiana</option><option value="IA">Iowa</option><option value="KS">Kansas</option><option value="KY">Kentucky</option><option value="LA">Louisiana</option><option value="ME">Maine</option><option value="MD">Maryland</option><option value="MA">Massachusetts</option><option value="MI">Michigan</option><option value="MN">Minnesota</option><option value="MS">Mississippi</option><option value="MO">Missouri</option><option value="MT">Montana</option><option value="NE">Nebraska</option><option value="NV">Nevada</option><option value="NH">New Hampshire</option><option value="NJ">New Jersey</option><option value="NM">New Mexico</option><option value="NY">New York</option><option value="NC">North Carolina</option><option value="ND">North Dakota</option><option value="OH">Ohio</option><option value="OK">Oklahoma</option><option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="RI">Rhode Island</option><option value="SC">South Carolina</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option><option value="TX">Texas</option><option value="UT">Utah</option><option value="VT">Vermont</option><option value="VA">Virginia</option><option value="WA">Washington</option><option value="WV">West Virginia</option><option value="WI">Wisconsin</option><option value="WY">Wyoming</option></select></label>
-        <label>Agent<select id="eccAgent"><option value="">Select agent</option><option>Acquisition Operations</option><option>Publisher Discovery</option><option>Business Development Discovery</option><option>Opportunity Partner Discovery</option><option>Institutional Buyer Discovery</option><option>State Operations</option></select></label>
-        <button type="submit" class="primary-action">EXECUTE</button>
-      </form>
-      <p id="eccLaunchMessage" class="ecc-message">All task parameters are predefined by APIOS. Select Task, State, and Agent, then Execute.</p>
+      <div class="panel-heading"><div><p class="section-kicker">ACTION REQUIRED</p><h2>Exceptions Requiring Decision</h2></div></div>
+      <div id="eccActionRequired" class="ecc-missions compact"></div>
     </article>
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">OPERATIONAL RECOMMENDATIONS</p><h2>Next Recommended Operation</h2></div></div>
-      <div id="eccRecommendation" class="ecc-recommendation"><p class="ecc-empty">Evaluating dependencies…</p></div>
+      <div class="panel-heading"><div><p class="section-kicker">SYSTEM HEALTH</p><h2>Evidence-Backed Status</h2></div></div>
+      <div id="eccHealth" class="ecc-health"></div>
     </article>
   </section>
 
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">MISSION CONTROL</p><h2>Active Mission Monitors</h2></div><span class="status-pill status-running">Live · 15s</span></div>
-    <div id="eccActiveMissions" class="ecc-missions"></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">STATE INVENTORY</p><h2>Capability Readiness</h2></div></div>
+    <div class="panel-heading"><div><p class="section-kicker">STATE OPERATIONS</p><h2>Operational Context</h2></div></div>
+    <div id="eccStateSelector" class="ecc-state-selector"></div>
     <div id="eccStateInventory" class="ecc-state-inventory"></div>
   </section>
 
   <section class="ecc-two">
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">PUBLISHER DISCOVERY</p><h2>Discovery Evidence & Review</h2></div></div>
-      <div id="eccPublisherDiscovery" class="ecc-list"></div>
-    </article>
-    <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">PUBLISHER REGISTRY</p><h2>Authoritative Publisher Evidence</h2></div></div>
+      <div class="panel-heading"><div><p class="section-kicker">PUBLISHER DIRECTORY</p><h2>Source and Access Intelligence</h2></div></div>
       <div id="eccPublisherRegistry" class="ecc-list"></div>
     </article>
-  </section>
-
-  <section class="ecc-two">
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">ACQUISITION OPERATIONS</p><h2>Acquisition Execution Evidence</h2></div></div>
+      <div class="panel-heading"><div><p class="section-kicker">ACQUISITION OPERATIONS</p><h2>Actual Execution Evidence</h2></div></div>
       <div id="eccAcquisitionOps" class="ecc-list"></div>
-    </article>
-    <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">PROCUREMENT INVENTORY</p><h2>Canonical Opportunity Inventory</h2></div></div>
-      <div id="eccProcurementInventory" class="ecc-totals"></div>
     </article>
   </section>
 
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">NAT-CORP DELIVERY</p><h2>Opportunity-to-Fulfillment Operations</h2></div><a class="otf-nav-cta" id="eccOtfOpen" href="https://natcorp.aproposgroupllc.com/opportunity-fulfillment"><span>INTERNAL SERVICE 2</span><strong>Open OTF Workspace</strong><b aria-hidden="true">↗</b></a></div>
-    <div id="eccOtfKpis" class="ecc-totals"></div>
-    <div class="ecc-two">
-      <article><h3>OTF Queues</h3><div id="eccOtfQueues" class="ecc-list"></div></article>
-      <article><h3>Selected Businesses</h3><div id="eccOtfSelected" class="ecc-list"></div></article>
-    </div>
-    <div><h3>OTF Exceptions</h3><div id="eccOtfExceptions" class="ecc-notifications"></div></div>
+    <div class="panel-heading"><div><p class="section-kicker">PROCUREMENT INVENTORY</p><h2>Canonical Contract Opportunities</h2></div></div>
+    <div id="eccProcurementInventory" class="ecc-totals"></div>
   </section>
 
   <section class="ecc-two">
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">SCHEDULER</p><h2>Recurring Automation</h2></div></div>
-      <div id="eccSchedules" class="ecc-list"></div>
+      <div class="panel-heading"><div><p class="section-kicker">RECENT RESULTS</p><h2>Completed Mission Outcomes</h2></div></div>
+      <div id="eccDeliverables" class="ecc-list"></div>
     </article>
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">SYSTEM EXCEPTIONS</p><h2>Action Required</h2></div></div>
-      <div id="eccActionRequired" class="ecc-missions compact"></div>
+      <div class="panel-heading"><div><p class="section-kicker">MISSION HISTORY</p><h2>Governed Activity</h2></div></div>
+      <div id="eccAuditHistory" class="ecc-list"></div>
     </article>
   </section>
 
@@ -129,26 +133,20 @@
       <div id="eccLifecycle"></div>
     </article>
     <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">SYSTEM HEALTH</p><h2>Evidence-Backed Infrastructure Status</h2></div></div>
-      <div id="eccHealth" class="ecc-health"></div>
-    </article>
-  </section>
-
-  <section class="ecc-two">
-    <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">AUDIT / HISTORY</p><h2>Recent Governed Activity</h2></div></div>
-      <div id="eccAuditHistory" class="ecc-list"></div>
-    </article>
-    <article class="panel">
-      <div class="panel-heading"><div><p class="section-kicker">DELIVERABLES / RESULTS</p><h2>Generated Operational Outputs</h2></div></div>
-      <div id="eccDeliverables" class="ecc-list"></div>
+      <div class="panel-heading"><div><p class="section-kicker">SCHEDULED OPERATIONS</p><h2>Recurring Automation</h2></div></div>
+      <div id="eccSchedules" class="ecc-list"></div>
     </article>
   </section>
 
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-kicker">NOTIFICATIONS</p><h2>Operational Notifications</h2></div></div>
+    <div class="panel-heading"><div><p class="section-kicker">NOTIFICATIONS</p><h2>Operational Notices</h2></div></div>
     <div id="eccNotifications" class="ecc-notifications"></div>
   </section>
+
+  <div hidden aria-hidden="true">
+    <div id="eccTotals"></div><div id="eccRecommendation"></div><div id="eccPublisherDiscovery"></div>
+    <div id="eccOtfKpis"></div><div id="eccOtfQueues"></div><div id="eccOtfSelected"></div><div id="eccOtfExceptions"></div>
+  </div>
 </main>
 
 <footer><span>APROPOS GROUP LLC</span><span>Executive Mission Control · Internal Controlled System</span></footer>
