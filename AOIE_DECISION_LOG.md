@@ -91,3 +91,10 @@ This file records approved project decisions. Newer written entries supersede ol
 
 **Status:** Approved  
 **Decision:** Begin with baseline validation of NVGovCC and CalGovCC, inventory the existing profiles, data sources, schemas, and match logic, then approve the shared Business Capability Graph and Canonical Opportunity Record before implementing the hybrid matcher.
+
+## D-019 — Development-stage accelerated integration
+
+**Status:** Approved  
+**Decision:** APiE and the Executive Command Center are currently in active development and the Executive Command Center is an owner-operated internal dashboard intended for use by the Project Owner. During this development stage, approved architectural, discovery, workflow, data-model, automation, and operator-interface improvements should be integrated proactively rather than deferred solely to preserve immature behavior. Development-stage changes may be merged after focused repository validation, rollback protection, and confirmation that they do not corrupt authoritative data, expose credentials, fabricate procurement facts, or remove essential provenance. Full production-grade release ceremony remains required before external users, institutional partners, or customer data are introduced.
+
+**Operating effect:** D-019 refines D-011 and D-016 for the current development lifecycle. Protected branches, tests, backups, migration discipline, and validation remain required, but preserving an immature internal interface is not a reason to block beneficial integration.
