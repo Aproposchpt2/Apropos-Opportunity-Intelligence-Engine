@@ -1,4 +1,4 @@
-export const PUBLISHER_DISCOVERY_TAXONOMY_VERSION = 'APIE-PSR-TAXONOMY-2026.08.02-V1';
+export const PUBLISHER_DISCOVERY_TAXONOMY_VERSION = 'APIE-PSR-TAXONOMY-2026.08.02-V2';
 
 export const PUBLISHER_DISCOVERY_ENTITY_CLASSES = Object.freeze([
   'Federal departments and agencies',
@@ -71,29 +71,34 @@ export const DISCOVERY_SCOPE_DESCRIPTIONS = Object.freeze({
   REFRESH: 'Revalidate existing publisher coverage and identify newly created, migrated or previously missed publishers.'
 });
 
-export function buildPublisherDiscoveryPrompt({ stateCode, discoveryScope }) {
+export function buildPublisherDiscoveryPrompt({ stateCode, discoveryScope, strategyKey = 'UNIVERSAL', strategyLabel = 'Universal publisher discovery', entityClasses = PUBLISHER_DISCOVERY_ENTITY_CLASSES }) {
   const scopeDescription = DISCOVERY_SCOPE_DESCRIPTIONS[discoveryScope] || DISCOVERY_SCOPE_DESCRIPTIONS.STATE_AND_LOCAL;
-  const entityClasses = PUBLISHER_DISCOVERY_ENTITY_CLASSES.map((value, index) => `${index + 1}. ${value}`).join('\n');
+  const selectedClasses = Array.isArray(entityClasses) && entityClasses.length ? entityClasses : PUBLISHER_DISCOVERY_ENTITY_CLASSES;
+  const entityList = selectedClasses.map((value, index) => `${index + 1}. ${value}`).join('\n');
   const roleTypes = PUBLISHER_ROLE_TYPES.join('|');
   const channelTypes = OPPORTUNITY_CHANNEL_TYPES.join('|');
 
   return `Research official procurement opportunity publishers operating in or purchasing for ${stateCode}.
 
+Search wave: ${strategyKey} — ${strategyLabel}
 Discovery scope: ${discoveryScope} — ${scopeDescription}
 
-A publisher qualifies when it publicly issues, posts, administers, or distributes solicitations, bid packages, subcontracting opportunities, cooperative contracts, or purchases supported by public funds. Do not limit discovery to conventional government agencies.
+A publisher qualifies when it publicly issues, posts, administers, or distributes active solicitations, bid packages, subcontracting opportunities, cooperative contracts, or purchases supported by public funds. Do not limit discovery to conventional government agencies.
 
-Required discovery universe:
-${entityClasses}
+Search this wave only for these publisher classes:
+${entityList}
 
 Research rules:
+- Search official directories, organizational listings, procurement pages, bid boards, supplier portals and authorized platform pages relevant to this wave.
 - Use official organization, procurement, grant-program, prime-contractor, construction-manager, or authorized portal sources only.
 - Confirm that the organization actually publishes or administers purchasing opportunities; organizational existence alone is insufficient.
-- Identify the most direct usable opportunity-search endpoint.
+- Identify the most direct usable opportunity-search endpoint, not merely a general homepage.
+- Prefer pages showing current solicitations, open bids, procurement notices, bid packages or vendor opportunities.
 - Distinguish direct public buyers from cooperative publishers, publicly funded purchasers, prime contractors, program managers, and supplemental publishers.
 - Do not claim API availability unless an official machine-readable endpoint is verified.
 - Mark uncertain facts as unknown rather than inferring them.
 - Return each distinct buying or publishing organization once.
+- Maximize verified publisher yield for this specific search wave.
 
 Return ONLY valid JSON using this schema:
 {"candidates":[{"publisher_name":"","organization_type":"","publisher_role":"${roleTypes}","opportunity_channel":"${channelTypes}","jurisdiction_level":"FEDERAL|STATE|COUNTY|MUNICIPAL|REGIONAL|DISTRICT|TRIBAL|INSTITUTIONAL|PRIVATE_PUBLICLY_FUNDED","public_funding_basis":"","official_website":"","procurement_website":"","acquisition_method":"API|PUBLIC_SEARCH|PUBLIC_PORTAL|DOCUMENT_FEED|UNASSESSED","search_endpoint":"","vendor_registration_url":"","procurement_platform":"","technology_vendor":"","registration_required":false,"geographic_coverage":[""],"official_sources":[""],"official_source_verified":true}]}`;
@@ -110,6 +115,9 @@ export function normalizeDiscoveryClassification(candidate = {}) {
     public_funding_basis: String(candidate.public_funding_basis || '').trim() || null,
     geographic_coverage: Array.isArray(candidate.geographic_coverage)
       ? candidate.geographic_coverage.map(value => String(value || '').trim()).filter(Boolean)
+      : [],
+    discovery_strategies: Array.isArray(candidate.discovery_strategies)
+      ? candidate.discovery_strategies.map(value => String(value || '').trim().toUpperCase()).filter(Boolean)
       : []
   };
 }
