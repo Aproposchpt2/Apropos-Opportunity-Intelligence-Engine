@@ -39,6 +39,40 @@ async function researchWave({ apiKey, model, wave }) {
   return arr(parseJson(outputText(providerData))?.candidates).filter(candidate => txt(candidate?.publisher_name));
 }
 
+async function stageCandidate(values) {
+  try {
+    const row = (await db('publisher_discovery_candidates', {
+      method: 'POST',
+      body: JSON.stringify(values)
+    }))?.[0] || null;
+    return { row, duplicate: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate key value|unique constraint|publisher_discovery_candidate_run_name_unique_idx/i.test(message)) throw error;
+
+    const existing = await db(
+      `publisher_discovery_candidates?discovery_run_id=eq.${values.discovery_run_id}&publisher_name=eq.${encodeURIComponent(values.publisher_name)}&select=*&limit=1`
+    ).catch(() => []);
+    const row = existing?.[0] || null;
+
+    if (row?.id) {
+      const mergedSources = [...new Set([...arr(row.official_sources), ...arr(values.official_sources)].map(txt).filter(Boolean))];
+      const patch = {
+        ...values,
+        official_sources: mergedSources,
+        official_source_verified: row.official_source_verified === true || values.official_source_verified === true,
+        duplicate_status: values.duplicate_status === 'EXISTING_REGISTRY_MATCH' ? values.duplicate_status : row.duplicate_status,
+        review_notes: [txt(row.review_notes), txt(values.review_notes), 'Duplicate candidate evidence merged during idempotent staging.'].filter(Boolean).join(' '),
+        updated_at: now()
+      };
+      await db(`publisher_discovery_candidates?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify(patch) }).catch(() => null);
+      return { row: { ...row, ...patch }, duplicate: true };
+    }
+
+    return { row: null, duplicate: true };
+  }
+}
+
 async function upsertPublisher(candidate, stateCode, sourceVerified, endpoint, sources) {
   const name = txt(candidate.publisher_name);
   const classification = normalizeDiscoveryClassification(candidate);
@@ -114,7 +148,7 @@ export const handler = async event => {
     const discoveryRun = (await db('publisher_discovery_runs', { method: 'POST', body: JSON.stringify({
       command_run_id: commandRunId, state_code: stateCode, mission_name: `${stateCode} — Multi-Wave Publisher Expansion`, discovery_scope: discoveryScope,
       organization_types: [...PUBLISHER_DISCOVERY_ENTITY_CLASSES], intelligence_provider: 'OPENAI_WEB_SEARCH', operator_name: 'Executive Command Center',
-      governance: { objective_validation_auto_admission: true, isolate_incomplete_candidates: true, preserve_contract_filters: true, taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION, search_wave_count: plan.length },
+      governance: { objective_validation_auto_admission: true, isolate_incomplete_candidates: true, preserve_contract_filters: true, taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION, search_wave_count: plan.length, idempotent_candidate_staging: true },
       status: 'RUNNING', current_stage: 'MULTI_WAVE_RESEARCH', started_at: now(),
       evidence: { source: 'EXECUTIVE_COMMAND_CENTER', runtime: 'NETLIFY_NATIVE', engine: 'PUBLISHER_EXPANSION_ENGINE', taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION }
     }) }))?.[0];
@@ -148,7 +182,7 @@ export const handler = async event => {
     const coverage = calculateCoverageSummary({ candidates, existingPublishers: arr(existingPublishers), strategyResults });
     await patchRun(commandRunId, { current_stage: 'PUBLISHER_VALIDATION', progress_value: 50, records_discovered: candidates.length, execution_evidence: { engine: 'PUBLISHER_EXPANSION_ENGINE', coverage } });
 
-    let staged = 0, ready = 0, exceptions = 0, duplicates = 0;
+    let staged = 0, ready = 0, exceptions = 0, duplicates = 0, candidateDuplicates = 0;
     for (const candidate of candidates) {
       const name = txt(candidate.publisher_name);
       const sources = arr(candidate.official_sources).map(txt).filter(Boolean);
@@ -161,7 +195,7 @@ export const handler = async event => {
       const duplicateId = existing?.[0]?.id || null;
       if (duplicateId) duplicates++;
 
-      const candidateRow = (await db('publisher_discovery_candidates', { method: 'POST', body: JSON.stringify({
+      const stagedCandidate = await stageCandidate({
         discovery_run_id: discoveryRunId, publisher_name: name, state_code: stateCode, organization_type: txt(candidate.organization_type) || null,
         official_website: txt(candidate.official_website) || null, procurement_website: txt(candidate.procurement_website) || null,
         acquisition_method: method || 'UNASSESSED', search_endpoint: txt(candidate.search_endpoint) || null,
@@ -170,8 +204,11 @@ export const handler = async event => {
         official_sources: sources, official_source_verified: sourceVerified, duplicate_publisher_id: duplicateId,
         duplicate_status: duplicateId ? 'EXISTING_REGISTRY_MATCH' : 'NO_MATCH', review_status: eligible ? 'AUTO_APPROVED' : 'EXCEPTION_REVIEW',
         review_notes: eligible ? `Validated through ${classification.discovery_strategies.join(', ') || 'expanded discovery'}.` : 'Missing official verification, supported acquisition method, or usable endpoint.', reviewed_at: now()
-      }) }))?.[0];
+      });
+      const candidateRow = stagedCandidate.row;
+      if (stagedCandidate.duplicate) candidateDuplicates++;
       staged++;
+
       if (!eligible) { exceptions++; continue; }
       const publisher = await upsertPublisher(candidate, stateCode, sourceVerified, endpoint, sources);
       if (!publisher?.id) { exceptions++; continue; }
@@ -181,7 +218,7 @@ export const handler = async event => {
       if (candidateRow?.id) await db(`publisher_discovery_candidates?id=eq.${candidateRow.id}`, { method: 'PATCH', body: JSON.stringify({ admitted_publisher_id: publisher.id, updated_at: now() }) });
     }
 
-    const evidence = { runtime: 'NETLIFY_NATIVE', engine: 'PUBLISHER_EXPANSION_ENGINE', taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION, coverage, candidates_staged: staged, assignments_ready: ready, exceptions_isolated: exceptions, duplicate_registry_matches: duplicates };
+    const evidence = { runtime: 'NETLIFY_NATIVE', engine: 'PUBLISHER_EXPANSION_ENGINE', taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION, coverage, candidates_staged: staged, assignments_ready: ready, exceptions_isolated: exceptions, duplicate_registry_matches: duplicates, duplicate_candidate_rows_merged_or_skipped: candidateDuplicates, idempotent_candidate_staging: true };
     await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, { method: 'PATCH', body: JSON.stringify({
       status: ready ? 'COMPLETED' : 'PAUSED', current_stage: ready ? 'ACQUISITION_HANDOFF' : 'NO_READY_ASSIGNMENTS',
       official_sources_identified: candidates.filter(candidate => candidate.official_source_verified === true).length,
@@ -189,13 +226,13 @@ export const handler = async event => {
     }) });
 
     if (!ready) {
-      await patchRun(commandRunId, { status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'NO_READY_ASSIGNMENTS', progress_value: 100, records_acquired: staged, records_accepted: 0, records_rejected: exceptions, action_required: true, completed_at: now(), result_summary: `${staged} candidates staged across ${coverage.strategy_completed} completed search waves; none passed acquisition admission.` });
-      return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, assignments_ready: 0, coverage, action_required: true });
+      await patchRun(commandRunId, { status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'NO_READY_ASSIGNMENTS', progress_value: 100, records_acquired: staged, records_accepted: 0, records_rejected: exceptions, action_required: true, completed_at: now(), result_summary: `${staged} candidates staged across ${coverage.strategy_completed} completed search waves; none passed acquisition admission. ${candidateDuplicates} duplicate candidate rows were safely merged or skipped.` });
+      return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, assignments_ready: 0, duplicate_candidate_rows: candidateDuplicates, coverage, action_required: true });
     }
 
-    await patchRun(commandRunId, { status: 'running', aadp_state: 'RUNNING', current_stage: 'ACQUISITION_QUEUED', progress_value: 70, records_acquired: staged, records_accepted: ready, records_rejected: exceptions, action_required: false, result_summary: `${ready} publishers are acquisition-ready after ${coverage.strategy_completed} targeted search waves. Contract acquisition is launching.`, execution_evidence: evidence });
+    await patchRun(commandRunId, { status: 'running', aadp_state: 'RUNNING', current_stage: 'ACQUISITION_QUEUED', progress_value: 70, records_acquired: staged, records_accepted: ready, records_rejected: exceptions, action_required: false, result_summary: `${ready} publishers are acquisition-ready after ${coverage.strategy_completed} targeted search waves. ${candidateDuplicates} duplicate candidate rows were safely merged or skipped. Contract acquisition is launching.`, execution_evidence: evidence });
     const dispatchStatus = await dispatchAcquisition(event, commandRunId, stateCode);
-    return response(202, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, assignments_ready: ready, exceptions_isolated: exceptions, acquisition_dispatch_status: dispatchStatus, coverage, autonomous_continuation: true });
+    return response(202, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, candidates_staged: staged, assignments_ready: ready, exceptions_isolated: exceptions, duplicate_candidate_rows: candidateDuplicates, acquisition_dispatch_status: dispatchStatus, coverage, autonomous_continuation: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('command-publisher-expansion-worker-background failed', error);
