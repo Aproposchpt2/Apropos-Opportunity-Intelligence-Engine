@@ -1,5 +1,5 @@
 const TASKS={
-  PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',field:{id:'discovery_scope',label:'Discovery Scope',type:'select',options:[['STATEWIDE','Statewide publishers'],['STATE_AND_LOCAL','State and local publishers'],['REFRESH','Refresh existing publisher intelligence']]},operation:'command-mission-control'},
+  PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',field:{id:'discovery_scope',label:'Discovery Scope',type:'select',defaultValue:'STATEWIDE_ALL',options:[['STATEWIDE_ALL','Comprehensive — all publisher classes (Recommended)'],['STATE_AND_LOCAL','Expanded — state and local ecosystem'],['STATEWIDE','Core — statewide publishers'],['REFRESH','Refresh existing publisher intelligence']]},operation:'command-mission-control'},
   ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',publisher:true,operation:'command-mission-control'},
   STATE_MISSION:{agent:'State Operations',state:'required',field:{id:'state_operation',label:'Operation',type:'select',options:[['EVALUATE_READINESS','Evaluate operational state'],['RECONCILE_CAPABILITIES','Reconcile capabilities'],['REFRESH_STATE_INTELLIGENCE','Refresh state intelligence']]},operation:'command-mission-control'},
   AADP_PROCESSING:{agent:'AADP Processing',state:'optional',field:{id:'processing_scope',label:'Processing Scope',type:'select',options:[['UNPROCESSED','Unprocessed acquisition records'],['FAILED_RETRYABLE','Retryable failures'],['RECENT','Recently acquired records'],['ALL_PENDING','All pending records']]},operation:'command-automated-task'},
@@ -16,7 +16,16 @@ const configEl=()=>document.getElementById('eccTaskConfiguration');
 const escAttr=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function selectedText(el){return el?.selectedOptions?.[0]?.textContent?.trim()||''}
 function setAgent(agent=''){document.getElementById('eccAgent').value=agent;document.getElementById('eccAgentDisplay').value=agent||'Select a task'}
-function renderField(field){if(!field)return'';if(field.type==='select')return `<label>${escAttr(field.label)}<select id="eccDynamicField" data-key="${escAttr(field.id)}" required><option value="">Select ${escAttr(field.label.toLowerCase())}</option>${field.options.map(([v,l])=>`<option value="${escAttr(v)}">${escAttr(l)}</option>`).join('')}</select></label>`;return''}
+function renderField(field){
+  if(!field)return'';
+  if(field.type==='select'){
+    const hasDefault=Boolean(field.defaultValue);
+    const placeholder=hasDefault?'':`<option value="">Select ${escAttr(field.label.toLowerCase())}</option>`;
+    const options=field.options.map(([v,l])=>`<option value="${escAttr(v)}"${v===field.defaultValue?' selected':''}>${escAttr(l)}</option>`).join('');
+    return `<label>${escAttr(field.label)}<select id="eccDynamicField" data-key="${escAttr(field.id)}" required>${placeholder}${options}</select></label>`;
+  }
+  return'';
+}
 async function renderPublisherSelector(){
   const state=stateEl().value;
   if(!state||state==='ALL'){
