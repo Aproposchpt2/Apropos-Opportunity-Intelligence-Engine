@@ -18,13 +18,30 @@ export function response(statusCode, body) {
   };
 }
 
+function canonicalNetlifyHost() {
+  for (const value of [env('DEPLOY_PRIME_URL'), env('DEPLOY_URL'), env('URL')]) {
+    const raw = String(value || '').trim();
+    if (!raw) continue;
+    try {
+      return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).host;
+    } catch {}
+  }
+  return '';
+}
+
 export function header(event, name) {
+  const normalizedName = String(name || '').toLowerCase();
+  if (normalizedName === 'host') {
+    const canonical = canonicalNetlifyHost();
+    if (canonical) return canonical;
+  }
   const headers = event?.headers || {};
-  return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || '';
+  return headers[name] || headers[normalizedName] || headers[String(name || '').toUpperCase()] || '';
 }
 
 export function parseBody(event) {
-  try { return event?.body ? JSON.parse(event.body) : {}; }
+  try { return event?.body ? JSON.parse(event.body) : {};
+  }
   catch { return {}; }
 }
 
