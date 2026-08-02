@@ -4,13 +4,13 @@ import { response, parseBody, requireDashboardAuth, db, header } from './_shared
 const now = () => new Date().toISOString();
 const MISSION_ADAPTERS = Object.freeze({
   ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: 'command-acquisition-worker-background', kind: 'acquisition' },
-  PUBLISHER_DISCOVERY: { agent: 'Publisher Discovery', label: 'Publisher Discovery', worker: 'command-publisher-discovery-worker-background', kind: 'publisher' },
+  PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Expansion', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
   OPPORTUNITY_PARTNER_DISCOVERY: { agent: 'Opportunity Partner Discovery', label: 'Opportunity Partner Discovery', worker: 'command-opportunity-partner-discovery-worker-background', kind: 'research' },
   INSTITUTIONAL_BUYER_DISCOVERY: { agent: 'Institutional Buyer Discovery', label: 'Institutional Buyer Discovery', worker: 'command-institutional-buyer-discovery-worker-background', kind: 'research' }
 });
 
-export const handler = async (event) => {
+export const handler = async event => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
@@ -77,8 +77,7 @@ export const handler = async (event) => {
     let workerResponse;
     try {
       workerResponse = await fetch(`https://${host}/.netlify/functions/${adapter.worker}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-dashboard-password': dashboardPassword },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-dashboard-password': dashboardPassword },
         body: JSON.stringify(workerPayload), signal: controller.signal
       });
     } finally { clearTimeout(timeout); }
