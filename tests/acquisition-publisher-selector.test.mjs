@@ -30,7 +30,7 @@ test('Netlify publisher options expose only verified profiles and connector read
 
 test('Mission Control requires publisher_id for single-publisher acquisition',async()=>{
   const fn=await text('netlify/functions/command-mission-control.js');
-  assert.match(fn,/publisher_id is required for Acquisition Discovery/);
+  assert.match(fn,/publisher_id is required\. Acquisition Discovery executes one publishing agency at a time/);
   assert.match(fn,/publisher_scope: 'SINGLE'/);
   assert.match(fn,/command-single-publisher-acquisition-background/);
 });
