@@ -5,6 +5,7 @@ import { buildPublisherExpansionPlan, mergePublisherCandidates, calculateCoverag
 const now = () => new Date().toISOString();
 const txt = value => String(value ?? '').trim();
 const arr = value => Array.isArray(value) ? value : [];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const supportedMethods = new Set(['API', 'PUBLIC_SEARCH', 'PUBLIC_PORTAL', 'DOCUMENT_FEED']);
 
 function outputText(data) {
@@ -35,22 +36,32 @@ async function patchRun(id, values) {
 }
 
 async function researchWave({ apiKey, model, wave }) {
-  const providerResponse = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      reasoning: { effort: 'low' },
-      tools: [{ type: 'web_search', search_context_size: 'medium' }],
-      input: wave.prompt
-    }),
-    signal: AbortSignal.timeout(120000)
-  });
-  const providerData = await providerResponse.json().catch(() => ({}));
-  if (!providerResponse.ok) {
-    throw new Error(`${wave.key} failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const providerResponse = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          reasoning: { effort: 'low' },
+          tools: [{ type: 'web_search', search_context_size: 'medium' }],
+          input: wave.prompt
+        }),
+        signal: AbortSignal.timeout(120000)
+      });
+      const providerData = await providerResponse.json().catch(() => ({}));
+      if (!providerResponse.ok) {
+        throw new Error(`${wave.key} failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
+      }
+      const candidates = arr(parseJson(outputText(providerData))?.candidates).filter(candidate => txt(candidate?.publisher_name));
+      return { candidates, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await sleep(1500);
+    }
   }
-  return arr(parseJson(outputText(providerData))?.candidates).filter(candidate => txt(candidate?.publisher_name));
+  throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), { attempts: 2 });
 }
 
 async function stageCandidate(values) {
@@ -119,11 +130,7 @@ async function upsertPublisher(candidate, stateCode, sourceVerified, endpoint, s
     access_status: 'READY',
     last_verified_at: now(),
     updated_at: now(),
-    configuration: {
-      ...connectionConfig,
-      ...classification,
-      admission_mode: 'AUTOMATED_OBJECTIVE_VALIDATION'
-    }
+    configuration: { ...connectionConfig, ...classification, admission_mode: 'AUTOMATED_OBJECTIVE_VALIDATION' }
   };
   if (existing?.[0]?.id) {
     await db(`publisher_registry?id=eq.${existing[0].id}`, { method: 'PATCH', body: JSON.stringify(values) });
@@ -192,6 +199,7 @@ export const handler = async event => {
   if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'command_run_id and state_code are required' });
 
   let discoveryRunId = null;
+  let strategyResults = [];
   try {
     await patchRun(commandRunId, {
       status: 'running', aadp_state: 'RUNNING', current_stage: 'PUBLISHER_EXPANSION_PLANNING', progress_value: 5,
@@ -214,7 +222,9 @@ export const handler = async event => {
         taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION,
         search_wave_count: plan.length,
         idempotent_candidate_staging: true,
-        separate_acquisition_task: true
+        separate_acquisition_task: true,
+        provider_retry_attempts: 2,
+        preserve_existing_registry_on_provider_failure: true
       },
       status: 'RUNNING',
       current_stage: 'MULTI_WAVE_RESEARCH',
@@ -228,7 +238,7 @@ export const handler = async event => {
     if (!apiKey) throw new Error('Autonomous publisher research provider is not configured.');
     const model = env('OPENAI_DISCOVERY_MODEL') || 'gpt-5.6-terra';
     const batches = [];
-    const strategyResults = [];
+    strategyResults = [];
     for (let index = 0; index < plan.length; index++) {
       const wave = plan[index];
       await patchRun(commandRunId, {
@@ -237,16 +247,65 @@ export const handler = async event => {
         result_summary: `Search wave ${index + 1} of ${plan.length}: ${wave.label}.`
       });
       try {
-        const candidates = await researchWave({ apiKey, model, wave });
-        batches.push({ strategyKey: wave.key, candidates });
-        strategyResults.push({ strategyKey: wave.key, status: 'COMPLETED', candidatesFound: candidates.length });
+        const result = await researchWave({ apiKey, model, wave });
+        batches.push({ strategyKey: wave.key, candidates: result.candidates });
+        strategyResults.push({ strategyKey: wave.key, status: 'COMPLETED', candidatesFound: result.candidates.length, attempts: result.attempts });
       } catch (error) {
-        strategyResults.push({ strategyKey: wave.key, status: 'FAILED', candidatesFound: 0, error: error instanceof Error ? error.message : String(error) });
+        strategyResults.push({ strategyKey: wave.key, status: 'FAILED', candidatesFound: 0, attempts: Number(error?.attempts || 2), error: error instanceof Error ? error.message : String(error) });
       }
     }
 
     const candidates = mergePublisherCandidates(batches);
-    if (!candidates.length) throw new Error('All publisher search waves completed without usable candidates.');
+    if (!candidates.length) {
+      const diagnostics = strategyResults.map(item => `${item.strategyKey}: ${item.error || 'zero candidates'}`).join(' | ');
+      if (arr(existingPublishers).length) {
+        const evidence = {
+          runtime: 'NETLIFY_NATIVE',
+          engine: 'PUBLISHER_EXPANSION_ENGINE',
+          provider_degraded: true,
+          existing_registry_preserved: true,
+          existing_publishers_available: existingPublishers.length,
+          strategy_results: strategyResults,
+          separate_acquisition_task: true
+        };
+        await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'COMPLETED',
+            current_stage: 'PROVIDER_DEGRADED_EXISTING_REGISTRY_PRESERVED',
+            completed_at: now(),
+            updated_at: now(),
+            evidence
+          })
+        });
+        await patchRun(commandRunId, {
+          status: 'completed',
+          aadp_state: 'PARTIALLY_COMPLETE',
+          current_stage: 'PROVIDER_DEGRADED_EXISTING_REGISTRY_PRESERVED',
+          progress_value: 100,
+          records_discovered: 0,
+          records_accepted: 0,
+          records_rejected: 0,
+          warning_count: strategyResults.filter(item => item.status === 'FAILED').length,
+          failure_count: 0,
+          action_required: true,
+          completed_at: now(),
+          result_summary: `Publisher research provider was unavailable after controlled retries. Existing ${stateCode} registry preserved with ${existingPublishers.length} publishers; rerun discovery later.`,
+          execution_evidence: evidence
+        });
+        return response(200, {
+          ok: true,
+          completion_classification: 'COMPLETED_WITH_WARNINGS',
+          provider_degraded: true,
+          existing_registry_preserved: true,
+          existing_publishers_available: existingPublishers.length,
+          strategy_results: strategyResults,
+          diagnostics
+        });
+      }
+      throw new Error(`All publisher search waves failed after controlled retries. ${diagnostics}`);
+    }
+
     const coverage = calculateCoverageSummary({ candidates, existingPublishers: arr(existingPublishers), strategyResults });
     await patchRun(commandRunId, { current_stage: 'PUBLISHER_VALIDATION', progress_value: 50, records_discovered: candidates.length });
 
@@ -304,6 +363,7 @@ export const handler = async event => {
       engine: 'PUBLISHER_EXPANSION_ENGINE',
       taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION,
       coverage,
+      strategy_results: strategyResults,
       candidates_staged: staged,
       assignments_ready: ready,
       exceptions_isolated: exceptions,
@@ -330,7 +390,8 @@ export const handler = async event => {
       await patchRun(commandRunId, {
         status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'NO_READY_ASSIGNMENTS', progress_value: 100,
         records_acquired: staged, records_accepted: 0, records_rejected: exceptions, action_required: true, completed_at: now(),
-        result_summary: `${staged} publisher candidates staged; none produced a READY acquisition assignment.`
+        result_summary: `${staged} publisher candidates staged; none produced a READY acquisition assignment.`,
+        execution_evidence: evidence
       });
       return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, assignments_ready: 0, coverage });
     }
@@ -358,13 +419,14 @@ export const handler = async event => {
     if (discoveryRunId) {
       await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', completed_at: now(), updated_at: now(), evidence: { error: message } })
+        body: JSON.stringify({ status: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', completed_at: now(), updated_at: now(), evidence: { error: message, strategy_results: strategyResults } })
       }).catch(() => null);
     }
     await patchRun(commandRunId, {
       status: 'failed', aadp_state: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', progress_value: 100,
-      failure_count: 1, action_required: true, completed_at: now(), result_summary: message
+      failure_count: 1, action_required: true, completed_at: now(), result_summary: message,
+      execution_evidence: { strategy_results: strategyResults }
     }).catch(() => null);
-    return response(500, { error: message });
+    return response(500, { error: message, strategy_results: strategyResults });
   }
 };
