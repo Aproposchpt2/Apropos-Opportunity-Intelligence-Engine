@@ -31,7 +31,7 @@ export const handler = async event => {
     const certification = report.ready_for_acquisition ? 'CERTIFIED' : 'TESTING';
     await db('connector_acceptance_registry?on_conflict=publisher_id,connector_key,connector_version', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ publisher_id: publisher.id, connector_key: connector.key, connector_version: connector.version || '1.0.0', acceptance_status: certification, validation_status: report.ready_for_acquisition ? 'PASSED' : 'WARNING', reconciliation_status: report.pagination_status === 'PASS' ? 'MATCHED' : 'PARTIAL', publisher_reported_total: report.publisher_reported_total, records_acquired: report.records_parsed, acceptance_evidence: report, tested_at: now(), accepted_at: report.ready_for_acquisition ? now() : null, updated_at: now() })
+      body: JSON.stringify({ publisher_id: publisher.id, connector_key: connector.key, connector_version: connector.version || '1.0.0', acceptance_status: certification, validation_status: report.ready_for_acquisition ? 'PASSED' : 'WARNING', reconciliation_status: report.pagination_status === 'PASS' || report.pagination_status === 'TOLERATED_VARIANCE' ? 'MATCHED' : 'PARTIAL', publisher_reported_total: report.publisher_reported_total, records_acquired: report.records_parsed, acceptance_evidence: report, tested_at: now(), accepted_at: report.ready_for_acquisition ? now() : null, updated_at: now() })
     });
     await db(`publisher_registry?id=eq.${publisher.id}`, { method: 'PATCH', body: JSON.stringify({ configuration: { ...(publisher.configuration || {}), connector_key: connector.key, connector_version: connector.version || '1.0.0', certification_status: certification, last_verification_at: now(), eag_001: report }, updated_at: now() }) });
 
@@ -40,7 +40,9 @@ export const handler = async event => {
     return response(200, { ok: true, command_run_id: commandRunId, publisher_name: publisher.publisher_name, connector_key: connector.key, certification_status: certification, report });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await patchRun(commandRunId, { status: 'failed', aadp_state: 'FAILED', current_stage: 'EAG_001_FAILED', progress_value: 100, failure_count: 1, action_required: true, completed_at: now(), validation_status: 'FAILED', result_summary: message }).catch(() => null);
-    return response(500, { error: message });
+    const diagnostics = error && typeof error === 'object' && error.diagnostics ? error.diagnostics : null;
+    const stage = diagnostics ? 'EAG_001_DIAGNOSTIC_CAPTURED' : 'EAG_001_FAILED';
+    await patchRun(commandRunId, { status: 'failed', aadp_state: 'FAILED', current_stage: stage, progress_value: 100, failure_count: 1, action_required: true, completed_at: now(), validation_status: 'FAILED', result_summary: message, execution_evidence: { error: message, error_code: error?.code || null, diagnostics } }).catch(() => null);
+    return response(500, { error: message, code: error?.code || null, diagnostics });
   }
 };
