@@ -3,7 +3,7 @@ import { response, parseBody, requireDashboardAuth, db, header } from './_shared
 
 const now = () => new Date().toISOString();
 const MISSION_ADAPTERS = Object.freeze({
-  ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: 'command-acquisition-worker-background', kind: 'acquisition' },
+  ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: 'command-single-publisher-acquisition-background', kind: 'acquisition' },
   PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Expansion', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
   OPPORTUNITY_PARTNER_DISCOVERY: { agent: 'Opportunity Partner Discovery', label: 'Opportunity Partner Discovery', worker: 'command-opportunity-partner-discovery-worker-background', kind: 'research' },
@@ -23,13 +23,15 @@ export const handler = async event => {
     if (!missionType || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Task and State are required.' });
     if (!adapter) return response(409, { error: `${missionType} does not yet have a native Netlify runtime adapter.`, code: 'NETLIFY_RUNTIME_ADAPTER_REQUIRED' });
 
-    const publisherScope = adapter.kind === 'acquisition' ? String(body.publisher_scope || 'ALL').trim().toUpperCase() || 'ALL' : null;
+    const publisherScope = adapter.kind === 'acquisition' ? 'SINGLE' : null;
     const publisherId = adapter.kind === 'acquisition' && body.publisher_id ? String(body.publisher_id).trim() : null;
     const discoveryScope = adapter.kind !== 'acquisition' ? String(body.discovery_scope || 'STATEWIDE').trim().toUpperCase() : null;
 
     if (adapter.kind === 'acquisition') {
-      if (!['ALL', 'SINGLE'].includes(publisherScope)) return response(400, { error: 'publisher_scope must be ALL or SINGLE.' });
-      if (publisherScope === 'SINGLE' && !publisherId) return response(400, { error: 'publisher_id is required when publisher_scope is SINGLE.' });
+      if (!publisherId) return response(400, {
+        error: 'publisher_id is required. Acquisition Discovery executes one publishing agency at a time.',
+        code: 'SINGLE_PUBLISHER_REQUIRED'
+      });
     } else if (!['STATEWIDE', 'STATEWIDE_ALL', 'STATE_AND_LOCAL', 'REFRESH'].includes(discoveryScope)) {
       return response(400, { error: 'Unsupported discovery scope.' });
     }
@@ -37,7 +39,7 @@ export const handler = async event => {
     const missionName = String(body.mission_name || `${stateCode} — ${adapter.label}`).trim();
     const createdAt = now();
     const configuration = adapter.kind === 'acquisition'
-      ? { publisher_scope: publisherScope, publisher_id: publisherId }
+      ? { publisher_scope: 'SINGLE', publisher_id: publisherId, execution_model: 'PUBLISHER_SPECIFIC_CONNECTOR' }
       : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
 
     const runRows = await db('command_runs', {
@@ -69,7 +71,7 @@ export const handler = async event => {
     const dashboardPassword = header(event, 'x-dashboard-password');
     if (!host) throw new Error('Netlify host context unavailable.');
     const workerPayload = adapter.kind === 'acquisition'
-      ? { command_run_id: run.id, state_code: stateCode, publisher_scope: publisherScope, publisher_id: publisherId }
+      ? { command_run_id: run.id, state_code: stateCode, publisher_scope: 'SINGLE', publisher_id: publisherId }
       : { command_run_id: run.id, mission_type_key: missionType, mission_name: missionName, state_code: stateCode, discovery_scope: discoveryScope };
 
     const controller = new AbortController();
