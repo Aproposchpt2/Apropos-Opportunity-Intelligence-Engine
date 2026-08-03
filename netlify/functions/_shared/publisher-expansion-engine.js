@@ -1,49 +1,38 @@
 import { PUBLISHER_DISCOVERY_ENTITY_CLASSES, buildPublisherDiscoveryPrompt } from './publisher-discovery-taxonomy.js';
 
-export const PUBLISHER_DISCOVERY_STRATEGIES = Object.freeze([
-  {
-    key: 'CORE_GOVERNMENT',
-    label: 'Core government buyers',
-    entityPatterns: [/State agencies/i, /Counties/i, /Cities and municipal/i, /Towns, villages/i, /Courts and judicial/i, /Correctional institutions/i]
-  },
-  {
-    key: 'EDUCATION_AND_HEALTH',
-    label: 'Education and public health buyers',
-    entityPatterns: [/School districts/i, /Charter schools/i, /Educational service/i, /Community colleges/i, /University systems/i, /Public hospitals/i, /Federally qualified/i, /Public health districts/i]
-  },
-  {
-    key: 'DISTRICTS_UTILITIES_AUTHORITIES',
-    label: 'Districts, utilities and authorities',
-    entityPatterns: [/Special districts/i, /Water, sewer/i, /Public utility/i, /Transportation authorities/i, /Airports/i, /Ports/i, /Housing authorities/i, /Redevelopment/i, /Convention and visitors/i, /Public safety/i, /Fire protection/i, /Library districts/i, /Parks and recreation/i]
-  },
-  {
-    key: 'REGIONAL_TRIBAL_COOPERATIVE',
-    label: 'Regional, tribal and cooperative publishers',
-    entityPatterns: [/Cooperative purchasing/i, /Regional councils/i, /Metropolitan planning/i, /Workforce development/i, /Tribal governments/i, /Quasi-governmental/i]
-  },
-  {
-    key: 'PUBLICLY_FUNDED_AND_SUBCONTRACTING',
-    label: 'Publicly funded and subcontracting publishers',
-    entityPatterns: [/Prime contractors/i, /Construction managers/i, /Nonprofit institutions/i, /grant recipients/i, /Procurement portals/i, /Public-benefit corporations/i]
-  }
-]);
+export const PUBLISHER_DISCOVERY_UNITS = Object.freeze(
+  PUBLISHER_DISCOVERY_ENTITY_CLASSES.map((entityClass, index) => Object.freeze({
+    key: `ENTITY_CLASS_${String(index + 1).padStart(2, '0')}`,
+    label: entityClass,
+    entityClass,
+    sequence: index + 1
+  }))
+);
 
-function entitiesForStrategy(strategy) {
-  return PUBLISHER_DISCOVERY_ENTITY_CLASSES.filter(entity => strategy.entityPatterns.some(pattern => pattern.test(entity)));
-}
+// Backward-compatible export for existing reporting consumers.
+export const PUBLISHER_DISCOVERY_STRATEGIES = PUBLISHER_DISCOVERY_UNITS;
 
 export function buildPublisherExpansionPlan({ stateCode, discoveryScope }) {
-  return PUBLISHER_DISCOVERY_STRATEGIES.map(strategy => ({
-    key: strategy.key,
-    label: strategy.label,
-    entityClasses: entitiesForStrategy(strategy),
-    prompt: buildPublisherDiscoveryPrompt({
+  return PUBLISHER_DISCOVERY_UNITS.map(unit => ({
+    ...unit,
+    entityClasses: [unit.entityClass],
+    prompt: `${buildPublisherDiscoveryPrompt({
       stateCode,
       discoveryScope,
-      strategyKey: strategy.key,
-      strategyLabel: strategy.label,
-      entityClasses: entitiesForStrategy(strategy)
-    })
+      strategyKey: unit.key,
+      strategyLabel: unit.label,
+      entityClasses: [unit.entityClass]
+    })}
+
+MANDATORY UNIT EXECUTION RULES:
+- This task is assigned to exactly one publisher class: ${unit.entityClass}.
+- Search broadly across the entire selected state, including statewide, regional, county, municipal, district, institutional, tribal, publicly funded, and private-public procurement ecosystems where applicable to this class.
+- Use multiple distinct search formulations and official directories appropriate to this entity class.
+- Do not stop after locating prominent organizations. Continue seeking smaller, regional, local, independent, and specialized publishers in this class.
+- Every returned candidate must have official-source evidence and the most direct usable procurement endpoint available.
+- A successful search with zero qualifying publishers must return {"candidates":[]} rather than inventing candidates.
+- Completion of this unit, whether successful, zero-result, partial, provider-failed, validation-failed, or persistence-failed, must not prevent the next entity-class task from executing.
+- The unit result must be independently auditable and must identify this entity class exactly.`
   }));
 }
 
@@ -66,7 +55,11 @@ export function mergePublisherCandidates(candidateBatches = []) {
       const key = endpointKey ? `${nameKey}|${endpointKey}` : nameKey;
       const prior = merged.get(key);
       if (!prior) {
-        merged.set(key, { ...candidate, discovery_strategies: [batch.strategyKey].filter(Boolean) });
+        merged.set(key, {
+          ...candidate,
+          discovery_strategies: [batch.strategyKey].filter(Boolean),
+          discovery_entity_classes: [batch.entityClass].filter(Boolean)
+        });
         continue;
       }
       const priorSources = Array.isArray(prior.official_sources) ? prior.official_sources : [];
@@ -76,7 +69,8 @@ export function mergePublisherCandidates(candidateBatches = []) {
         ...candidate,
         official_sources: [...new Set([...priorSources, ...nextSources].filter(Boolean))],
         official_source_verified: prior.official_source_verified === true || candidate.official_source_verified === true,
-        discovery_strategies: [...new Set([...(prior.discovery_strategies || []), batch.strategyKey].filter(Boolean))]
+        discovery_strategies: [...new Set([...(prior.discovery_strategies || []), batch.strategyKey].filter(Boolean))],
+        discovery_entity_classes: [...new Set([...(prior.discovery_entity_classes || []), batch.entityClass].filter(Boolean))]
       });
     }
   }
@@ -87,19 +81,31 @@ export function calculateCoverageSummary({ candidates = [], existingPublishers =
   const discoveredTypes = new Set(candidates.map(candidate => canonical(candidate.organization_type)).filter(Boolean));
   const existingTypes = new Set(existingPublishers.map(publisher => canonical(publisher.organization_type)).filter(Boolean));
   const coveredTypes = new Set([...discoveredTypes, ...existingTypes]);
-  const strategyCoverage = strategyResults.map(result => ({
-    strategy_key: result.strategyKey,
+  const unitCoverage = strategyResults.map(result => ({
+    unit_key: result.strategyKey,
+    sequence: result.sequence || null,
+    entity_class: result.entityClass || null,
     status: result.status,
     candidates_found: Number(result.candidatesFound || 0),
-    error: result.error || null
+    candidates_verified: Number(result.candidatesVerified || 0),
+    assignments_ready: Number(result.assignmentsReady || 0),
+    attempts: Number(result.attempts || 0),
+    error: result.error || null,
+    child_run_id: result.childRunId || null
   }));
   return {
-    strategy_total: PUBLISHER_DISCOVERY_STRATEGIES.length,
-    strategy_completed: strategyCoverage.filter(item => item.status === 'COMPLETED').length,
-    strategy_failed: strategyCoverage.filter(item => item.status === 'FAILED').length,
+    unit_total: PUBLISHER_DISCOVERY_UNITS.length,
+    unit_terminal: unitCoverage.length,
+    unit_successful: unitCoverage.filter(item => ['COMPLETED', 'COMPLETED_NO_RESULTS', 'COMPLETED_WITH_WARNINGS'].includes(item.status)).length,
+    unit_failed: unitCoverage.filter(item => ['PROVIDER_FAILED', 'VALIDATION_FAILED', 'PERSISTENCE_FAILED'].includes(item.status)).length,
     candidate_count: candidates.length,
     existing_publisher_count: existingPublishers.length,
     distinct_organization_types_observed: coveredTypes.size,
-    strategy_coverage: strategyCoverage
+    entity_class_coverage: unitCoverage,
+    // Compatibility fields for existing report views.
+    strategy_total: PUBLISHER_DISCOVERY_UNITS.length,
+    strategy_completed: unitCoverage.filter(item => ['COMPLETED', 'COMPLETED_NO_RESULTS', 'COMPLETED_WITH_WARNINGS'].includes(item.status)).length,
+    strategy_failed: unitCoverage.filter(item => ['PROVIDER_FAILED', 'VALIDATION_FAILED', 'PERSISTENCE_FAILED'].includes(item.status)).length,
+    strategy_coverage: unitCoverage
   };
 }
