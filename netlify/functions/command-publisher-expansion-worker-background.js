@@ -7,6 +7,10 @@ const txt = value => String(value ?? '').trim();
 const arr = value => Array.isArray(value) ? value : [];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const supportedMethods = new Set(['API', 'PUBLIC_SEARCH', 'PUBLIC_PORTAL', 'DOCUMENT_FEED']);
+const supportedStateCodes = new Set([
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC',
+  'AS','GU','MP','PR','VI'
+]);
 
 function outputText(data) {
   if (typeof data?.output_text === 'string') return data.output_text;
@@ -31,11 +35,56 @@ function parseJson(text) {
 async function patchRun(id, values) {
   await db(`command_runs?id=eq.${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ ...values, last_activity_at: now() })
+    body: JSON.stringify({ ...values, last_activity_at: now(), updated_at: now() })
   });
 }
 
-async function researchWave({ apiKey, model, wave }) {
+async function createChildRun({ parentRunId, stateCode, unit, discoveryScope }) {
+  const idempotencyKey = `publisher-class:${parentRunId}:${unit.key}`;
+  try {
+    const created = await db('command_runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: idempotencyKey,
+        status: 'running',
+        aadp_state: 'RUNNING',
+        mission_type_key: 'PUBLISHER_DISCOVERY_CLASS',
+        mission_name: `${stateCode} — ${unit.entityClass}`,
+        state_code: stateCode,
+        assigned_agent: 'Publisher Expansion',
+        parent_run_id: parentRunId,
+        current_stage: 'ENTITY_CLASS_RESEARCH',
+        started_at: now(),
+        last_activity_at: now(),
+        progress_mode: 'DETERMINATE',
+        progress_value: 5,
+        result_summary: `Searching ${unit.entityClass} in ${stateCode}.`,
+        execution_evidence: {
+          entity_class: unit.entityClass,
+          sequence: unit.sequence,
+          discovery_scope: discoveryScope,
+          trigger_rule: 'ANY_TERMINAL_STATE_TRIGGERS_NEXT'
+        }
+      })
+    });
+    return created?.[0] || null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate key|unique constraint/i.test(message)) throw error;
+    const existing = await db(`command_runs?idempotency_key=eq.${encodeURIComponent(idempotencyKey)}&select=*&limit=1`).catch(() => []);
+    const row = existing?.[0] || null;
+    if (row?.id) {
+      await patchRun(row.id, {
+        status: 'running', aadp_state: 'RUNNING', current_stage: 'ENTITY_CLASS_RESEARCH',
+        progress_value: 5, started_at: row.started_at || now(), completed_at: null,
+        result_summary: `Reprocessing ${unit.entityClass} in ${stateCode}.`
+      });
+    }
+    return row;
+  }
+}
+
+async function researchUnit({ apiKey, model, unit }) {
   let lastError;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -45,16 +94,22 @@ async function researchWave({ apiKey, model, wave }) {
         body: JSON.stringify({
           model,
           reasoning: { effort: 'low' },
-          tools: [{ type: 'web_search', search_context_size: 'medium' }],
-          input: wave.prompt
+          tools: [{ type: 'web_search', search_context_size: 'high' }],
+          input: unit.prompt
         }),
         signal: AbortSignal.timeout(120000)
       });
       const providerData = await providerResponse.json().catch(() => ({}));
       if (!providerResponse.ok) {
-        throw new Error(`${wave.key} failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
+        throw new Error(`${unit.key} failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
       }
-      const candidates = arr(parseJson(outputText(providerData))?.candidates).filter(candidate => txt(candidate?.publisher_name));
+      const candidates = arr(parseJson(outputText(providerData))?.candidates)
+        .filter(candidate => txt(candidate?.publisher_name))
+        .map(candidate => ({
+          ...candidate,
+          discovery_strategies: [unit.key],
+          discovery_entity_classes: [unit.entityClass]
+        }));
       return { candidates, attempts: attempt };
     } catch (error) {
       lastError = error;
@@ -93,7 +148,7 @@ async function stageCandidate(values) {
 function buildConnectionConfig(candidate, endpoint, sources) {
   const method = txt(candidate.acquisition_method).toUpperCase();
   return {
-    configuration_version: 'PUBLISHER-CONNECTION-V1',
+    configuration_version: 'PUBLISHER-CONNECTION-V2',
     access_method: method,
     primary_endpoint: endpoint,
     procurement_platform: txt(candidate.procurement_platform) || null,
@@ -103,12 +158,13 @@ function buildConnectionConfig(candidate, endpoint, sources) {
     authentication_required: candidate.authentication_required === true,
     public_access_verified: candidate.official_source_verified === true,
     official_sources: sources,
+    discovery_entity_classes: arr(candidate.discovery_entity_classes),
     access_instructions: {
       API: 'Use the verified API endpoint, preserve pagination, and retrieve individual opportunity objects.',
-      PUBLIC_SEARCH: 'Open the verified public search page, identify the active solicitation listing, follow opportunity detail links, and extract individual contracts.',
-      PUBLIC_PORTAL: 'Use the verified procurement portal and platform-specific public access path. Do not store the portal landing page as a contract.',
-      DOCUMENT_FEED: 'Enumerate procurement notices or documents from the verified feed and treat each solicitation document as an individual candidate.'
-    }[method] || 'Use the verified official source and resolve individual solicitation records.'
+      PUBLIC_SEARCH: 'Open the verified public search page, identify active solicitation listings, follow every individual opportunity detail link, retrieve attachments, and extract substantive contract requirements.',
+      PUBLIC_PORTAL: 'Use the verified procurement portal and platform-specific public access path. Traverse listings and detail pages. Do not store a portal landing page as a contract.',
+      DOCUMENT_FEED: 'Enumerate procurement notices and documents from the verified feed, retrieve each solicitation document, and extract substantive contract requirements.'
+    }[method] || 'Use the verified official source and resolve individual solicitation records with substantive requirements.'
   };
 }
 
@@ -153,16 +209,18 @@ async function upsertAssignment(publisher, candidate, endpoint, sources) {
       source: 'PUBLISHER_DISCOVERY_REPORT',
       connection_config: connectionConfig,
       acquisition_command: {
-        objective: 'Discover and retrieve individual active procurement opportunities from this publisher.',
-        reject_page_types: ['publisher_homepage', 'procurement_landing_page', 'generic_portal_shell'],
-        required_output: 'individual_solicitation_records',
+        objective: 'Discover, retrieve, and enrich individual active procurement opportunities from this publisher.',
+        required_sequence: ['open_verified_endpoint', 'traverse_listing', 'follow_detail_links', 'retrieve_documents', 'extract_substantive_requirements'],
+        reject_page_types: ['publisher_homepage', 'procurement_landing_page', 'generic_portal_shell', 'vendor_registration_page', 'help_page'],
+        required_output: 'contract_specific_records_with_substantive_requirements',
+        completion_gate: 'Do not count a solicitation as enriched until substantive contract requirements are extracted from the detail page or associated official document.',
         preserve_source_provenance: true
       },
       ...classification
     },
     authorized_status_range: ['OPEN', 'POSTED', 'ACTIVE'],
     pagination_instructions: { follow_next_page: true, stop_when_no_new_opportunities: true },
-    attachment_instructions: { follow_solicitation_documents: true, preserve_document_urls: true },
+    attachment_instructions: { follow_solicitation_documents: true, extract_requirements_from_documents: true, preserve_document_urls: true },
     amendment_instructions: { capture_addenda: true, link_to_parent_solicitation: true },
     expected_source_identifiers: ['solicitation_number', 'notice_id', 'project_id', 'bid_number'],
     raw_destination: 'acquisition_raw_records',
@@ -176,7 +234,9 @@ async function upsertAssignment(publisher, candidate, endpoint, sources) {
       distinguish_opportunity_channel: true,
       report_connection_method_used: true,
       report_listing_pages_traversed: true,
-      report_individual_solicitations_found: true
+      report_individual_solicitations_found: true,
+      report_detail_pages_retrieved: true,
+      report_requirements_extracted: true
     },
     status: 'READY',
     updated_at: now()
@@ -188,6 +248,50 @@ async function upsertAssignment(publisher, candidate, endpoint, sources) {
   return (await db('publisher_assignments', { method: 'POST', body: JSON.stringify(values) }))?.[0];
 }
 
+async function processCandidate({ candidate, discoveryRunId, stateCode, unit }) {
+  const name = txt(candidate.publisher_name);
+  const sources = arr(candidate.official_sources).map(txt).filter(Boolean);
+  const sourceVerified = candidate.official_source_verified === true && sources.length > 0;
+  const method = txt(candidate.acquisition_method).toUpperCase();
+  const endpoint = txt(candidate.search_endpoint || candidate.procurement_website || candidate.official_website) || null;
+  const classification = normalizeDiscoveryClassification({ ...candidate, discovery_strategies: [unit.key] });
+  const eligible = sourceVerified && supportedMethods.has(method) && Boolean(endpoint);
+  const existing = await db(`publisher_registry?publisher_name=eq.${encodeURIComponent(name)}&state_code=eq.${stateCode}&select=id`);
+  const duplicateId = existing?.[0]?.id || null;
+  const stagedCandidate = await stageCandidate({
+    discovery_run_id: discoveryRunId,
+    publisher_name: name,
+    state_code: stateCode,
+    organization_type: txt(candidate.organization_type) || unit.entityClass,
+    official_website: txt(candidate.official_website) || null,
+    procurement_website: txt(candidate.procurement_website) || null,
+    acquisition_method: method || 'UNASSESSED',
+    search_endpoint: txt(candidate.search_endpoint) || null,
+    vendor_registration_url: txt(candidate.vendor_registration_url) || null,
+    procurement_platform: txt(candidate.procurement_platform) || null,
+    technology_vendor: txt(candidate.technology_vendor) || null,
+    registration_required: typeof candidate.registration_required === 'boolean' ? candidate.registration_required : null,
+    official_sources: sources,
+    official_source_verified: sourceVerified,
+    duplicate_publisher_id: duplicateId,
+    duplicate_status: duplicateId ? 'EXISTING_REGISTRY_MATCH' : 'NO_MATCH',
+    review_status: eligible ? 'AUTO_APPROVED' : 'EXCEPTION_REVIEW',
+    review_notes: eligible ? `Validated by ${unit.key}: ${unit.entityClass}.` : `Unit ${unit.key} found the candidate, but official verification, supported access method, or usable endpoint is incomplete.`,
+    reviewed_at: now()
+  });
+  if (!eligible) return { staged: 1, ready: 0, exception: 1, duplicateRegistry: duplicateId ? 1 : 0, duplicateCandidate: stagedCandidate.duplicate ? 1 : 0 };
+  const publisher = await upsertPublisher({ ...candidate, organization_type: txt(candidate.organization_type) || unit.entityClass }, stateCode, sourceVerified, endpoint, sources);
+  if (!publisher?.id) return { staged: 1, ready: 0, exception: 1, duplicateRegistry: duplicateId ? 1 : 0, duplicateCandidate: stagedCandidate.duplicate ? 1 : 0 };
+  const assignment = await upsertAssignment(publisher, candidate, endpoint, sources);
+  if (!assignment?.id) return { staged: 1, ready: 0, exception: 1, duplicateRegistry: duplicateId ? 1 : 0, duplicateCandidate: stagedCandidate.duplicate ? 1 : 0 };
+  if (stagedCandidate.row?.id) {
+    await db(`publisher_discovery_candidates?id=eq.${stagedCandidate.row.id}`, {
+      method: 'PATCH', body: JSON.stringify({ admitted_publisher_id: publisher.id, updated_at: now() })
+    });
+  }
+  return { staged: 1, ready: 1, exception: 0, duplicateRegistry: duplicateId ? 1 : 0, duplicateCandidate: stagedCandidate.duplicate ? 1 : 0 };
+}
+
 export const handler = async event => {
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
@@ -196,40 +300,43 @@ export const handler = async event => {
   const commandRunId = txt(body.command_run_id);
   const stateCode = txt(body.state_code).toUpperCase();
   const discoveryScope = txt(body.discovery_scope || 'STATE_AND_LOCAL').toUpperCase();
-  if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'command_run_id and state_code are required' });
+  if (!commandRunId || !supportedStateCodes.has(stateCode)) {
+    return response(400, { error: 'command_run_id and a supported U.S. state or territory code are required' });
+  }
 
   let discoveryRunId = null;
-  let strategyResults = [];
+  const unitResults = [];
   try {
-    await patchRun(commandRunId, {
-      status: 'running', aadp_state: 'RUNNING', current_stage: 'PUBLISHER_EXPANSION_PLANNING', progress_value: 5,
-      result_summary: 'Publisher Discovery is preparing targeted official-source search waves.'
-    });
     const plan = buildPublisherExpansionPlan({ stateCode, discoveryScope });
+    await patchRun(commandRunId, {
+      status: 'running', aadp_state: 'RUNNING', current_stage: 'ENTITY_CLASS_ORCHESTRATION', progress_value: 1,
+      result_summary: `Publisher Discovery will execute ${plan.length} entity-class search tasks in succession for ${stateCode}.`
+    });
     const existingPublishers = await db(`publisher_registry?state_code=eq.${stateCode}&select=id,organization_type,publisher_name`);
     const discoveryRun = (await db('publisher_discovery_runs', { method: 'POST', body: JSON.stringify({
       command_run_id: commandRunId,
       state_code: stateCode,
-      mission_name: `${stateCode} — Multi-Wave Publisher Expansion`,
+      mission_name: `${stateCode} — Sequential Entity-Class Publisher Discovery`,
       discovery_scope: discoveryScope,
       organization_types: [...PUBLISHER_DISCOVERY_ENTITY_CLASSES],
       intelligence_provider: 'OPENAI_WEB_SEARCH',
       operator_name: 'Executive Command Center',
       governance: {
+        taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION,
+        execution_model: 'ONE_ENTITY_CLASS_PER_CHILD_TASK',
+        entity_class_task_count: plan.length,
+        task_trigger_rule: 'SUCCESS_OR_FAILURE_TRIGGERS_NEXT',
         objective_validation_auto_admission: true,
         isolate_incomplete_candidates: true,
-        preserve_contract_filters: true,
-        taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION,
-        search_wave_count: plan.length,
         idempotent_candidate_staging: true,
         separate_acquisition_task: true,
         provider_retry_attempts: 2,
-        preserve_existing_registry_on_provider_failure: true
+        nationwide_state_support: true
       },
       status: 'RUNNING',
-      current_stage: 'MULTI_WAVE_RESEARCH',
+      current_stage: 'ENTITY_CLASS_TASK_01',
       started_at: now(),
-      evidence: { source: 'EXECUTIVE_COMMAND_CENTER', runtime: 'NETLIFY_NATIVE', engine: 'PUBLISHER_EXPANSION_ENGINE' }
+      evidence: { source: 'EXECUTIVE_COMMAND_CENTER', runtime: 'NETLIFY_NATIVE', engine: 'SEQUENTIAL_ENTITY_CLASS_ORCHESTRATOR' }
     }) }))?.[0];
     discoveryRunId = discoveryRun?.id;
     if (!discoveryRunId) throw new Error('Publisher discovery run creation failed.');
@@ -238,137 +345,110 @@ export const handler = async event => {
     if (!apiKey) throw new Error('Autonomous publisher research provider is not configured.');
     const model = env('OPENAI_DISCOVERY_MODEL') || 'gpt-5.6-terra';
     const batches = [];
-    strategyResults = [];
+    let staged = 0, ready = 0, exceptions = 0, duplicateRegistry = 0, duplicateCandidates = 0;
+
     for (let index = 0; index < plan.length; index++) {
-      const wave = plan[index];
+      const unit = plan[index];
+      const childRun = await createChildRun({ parentRunId: commandRunId, stateCode, unit, discoveryScope });
+      const childRunId = childRun?.id || null;
+      const parentProgress = Math.max(2, Math.round((index / plan.length) * 94));
       await patchRun(commandRunId, {
-        current_stage: `PUBLISHER_SEARCH_${wave.key}`,
-        progress_value: 10 + Math.round((index / plan.length) * 35),
-        result_summary: `Search wave ${index + 1} of ${plan.length}: ${wave.label}.`
+        current_stage: `${unit.key}_RUNNING`,
+        progress_value: parentProgress,
+        result_summary: `Entity-class task ${unit.sequence} of ${plan.length}: ${unit.entityClass}.`
       });
+      await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
+        method: 'PATCH', body: JSON.stringify({ current_stage: unit.key, updated_at: now(), evidence: { latest_unit: unit, unit_results: unitResults } })
+      }).catch(() => null);
+
       try {
-        const result = await researchWave({ apiKey, model, wave });
-        batches.push({ strategyKey: wave.key, candidates: result.candidates });
-        strategyResults.push({ strategyKey: wave.key, status: 'COMPLETED', candidatesFound: result.candidates.length, attempts: result.attempts });
+        const research = await researchUnit({ apiKey, model, unit });
+        batches.push({ strategyKey: unit.key, entityClass: unit.entityClass, candidates: research.candidates });
+        let unitStaged = 0, unitReady = 0, unitExceptions = 0;
+        for (const candidate of research.candidates) {
+          const result = await processCandidate({ candidate, discoveryRunId, stateCode, unit });
+          unitStaged += result.staged;
+          unitReady += result.ready;
+          unitExceptions += result.exception;
+          staged += result.staged;
+          ready += result.ready;
+          exceptions += result.exception;
+          duplicateRegistry += result.duplicateRegistry;
+          duplicateCandidates += result.duplicateCandidate;
+        }
+        const unitStatus = research.candidates.length === 0
+          ? 'COMPLETED_NO_RESULTS'
+          : unitExceptions > 0
+            ? 'COMPLETED_WITH_WARNINGS'
+            : 'COMPLETED';
+        const result = {
+          strategyKey: unit.key,
+          sequence: unit.sequence,
+          entityClass: unit.entityClass,
+          status: unitStatus,
+          candidatesFound: research.candidates.length,
+          candidatesVerified: unitStaged - unitExceptions,
+          assignmentsReady: unitReady,
+          attempts: research.attempts,
+          childRunId
+        };
+        unitResults.push(result);
+        if (childRunId) {
+          await patchRun(childRunId, {
+            status: 'completed', aadp_state: unitExceptions ? 'PARTIALLY_COMPLETE' : 'COMPLETED',
+            current_stage: unitStatus, progress_value: 100, completed_at: now(),
+            records_discovered: research.candidates.length, records_acquired: unitStaged,
+            records_accepted: unitReady, records_rejected: unitExceptions,
+            warning_count: unitExceptions, failure_count: 0, action_required: unitExceptions > 0,
+            result_summary: `${unit.entityClass}: ${research.candidates.length} candidates, ${unitReady} READY assignments, ${unitExceptions} exceptions.`,
+            execution_evidence: result
+          });
+        }
       } catch (error) {
-        strategyResults.push({ strategyKey: wave.key, status: 'FAILED', candidatesFound: 0, attempts: Number(error?.attempts || 2), error: error instanceof Error ? error.message : String(error) });
+        const message = error instanceof Error ? error.message : String(error);
+        const result = {
+          strategyKey: unit.key,
+          sequence: unit.sequence,
+          entityClass: unit.entityClass,
+          status: 'PROVIDER_FAILED',
+          candidatesFound: 0,
+          candidatesVerified: 0,
+          assignmentsReady: 0,
+          attempts: Number(error?.attempts || 2),
+          error: message,
+          childRunId
+        };
+        unitResults.push(result);
+        if (childRunId) {
+          await patchRun(childRunId, {
+            status: 'failed', aadp_state: 'FAILED', current_stage: 'PROVIDER_FAILED',
+            progress_value: 100, completed_at: now(), failure_count: 1, action_required: true,
+            result_summary: `${unit.entityClass} search failed after controlled retries. The next entity-class task was triggered.`,
+            execution_evidence: result
+          }).catch(() => null);
+        }
       }
+      // Any terminal state above intentionally advances to the next unit.
     }
 
     const candidates = mergePublisherCandidates(batches);
-    if (!candidates.length) {
-      const diagnostics = strategyResults.map(item => `${item.strategyKey}: ${item.error || 'zero candidates'}`).join(' | ');
-      if (arr(existingPublishers).length) {
-        const evidence = {
-          runtime: 'NETLIFY_NATIVE',
-          engine: 'PUBLISHER_EXPANSION_ENGINE',
-          provider_degraded: true,
-          existing_registry_preserved: true,
-          existing_publishers_available: existingPublishers.length,
-          strategy_results: strategyResults,
-          separate_acquisition_task: true
-        };
-        await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            status: 'COMPLETED',
-            current_stage: 'PROVIDER_DEGRADED_EXISTING_REGISTRY_PRESERVED',
-            completed_at: now(),
-            updated_at: now(),
-            evidence
-          })
-        });
-        await patchRun(commandRunId, {
-          status: 'completed',
-          aadp_state: 'PARTIALLY_COMPLETE',
-          current_stage: 'PROVIDER_DEGRADED_EXISTING_REGISTRY_PRESERVED',
-          progress_value: 100,
-          records_discovered: 0,
-          records_accepted: 0,
-          records_rejected: 0,
-          warning_count: strategyResults.filter(item => item.status === 'FAILED').length,
-          failure_count: 0,
-          action_required: true,
-          completed_at: now(),
-          result_summary: `Publisher research provider was unavailable after controlled retries. Existing ${stateCode} registry preserved with ${existingPublishers.length} publishers; rerun discovery later.`,
-          execution_evidence: evidence
-        });
-        return response(200, {
-          ok: true,
-          completion_classification: 'COMPLETED_WITH_WARNINGS',
-          provider_degraded: true,
-          existing_registry_preserved: true,
-          existing_publishers_available: existingPublishers.length,
-          strategy_results: strategyResults,
-          diagnostics
-        });
-      }
-      throw new Error(`All publisher search waves failed after controlled retries. ${diagnostics}`);
-    }
-
-    const coverage = calculateCoverageSummary({ candidates, existingPublishers: arr(existingPublishers), strategyResults });
-    await patchRun(commandRunId, { current_stage: 'PUBLISHER_VALIDATION', progress_value: 50, records_discovered: candidates.length });
-
-    let staged = 0, ready = 0, exceptions = 0, duplicates = 0, candidateDuplicates = 0;
-    for (const candidate of candidates) {
-      const name = txt(candidate.publisher_name);
-      const sources = arr(candidate.official_sources).map(txt).filter(Boolean);
-      const sourceVerified = candidate.official_source_verified === true && sources.length > 0;
-      const method = txt(candidate.acquisition_method).toUpperCase();
-      const endpoint = txt(candidate.search_endpoint || candidate.procurement_website || candidate.official_website) || null;
-      const classification = normalizeDiscoveryClassification(candidate);
-      const eligible = sourceVerified && supportedMethods.has(method) && Boolean(endpoint);
-      const existing = await db(`publisher_registry?publisher_name=eq.${encodeURIComponent(name)}&state_code=eq.${stateCode}&select=id`);
-      const duplicateId = existing?.[0]?.id || null;
-      if (duplicateId) duplicates++;
-
-      const stagedCandidate = await stageCandidate({
-        discovery_run_id: discoveryRunId,
-        publisher_name: name,
-        state_code: stateCode,
-        organization_type: txt(candidate.organization_type) || null,
-        official_website: txt(candidate.official_website) || null,
-        procurement_website: txt(candidate.procurement_website) || null,
-        acquisition_method: method || 'UNASSESSED',
-        search_endpoint: txt(candidate.search_endpoint) || null,
-        vendor_registration_url: txt(candidate.vendor_registration_url) || null,
-        procurement_platform: txt(candidate.procurement_platform) || null,
-        technology_vendor: txt(candidate.technology_vendor) || null,
-        registration_required: typeof candidate.registration_required === 'boolean' ? candidate.registration_required : null,
-        official_sources: sources,
-        official_source_verified: sourceVerified,
-        duplicate_publisher_id: duplicateId,
-        duplicate_status: duplicateId ? 'EXISTING_REGISTRY_MATCH' : 'NO_MATCH',
-        review_status: eligible ? 'AUTO_APPROVED' : 'EXCEPTION_REVIEW',
-        review_notes: eligible ? `Validated through ${classification.discovery_strategies.join(', ') || 'expanded discovery'}.` : 'Missing official verification, supported acquisition method, or usable endpoint.',
-        reviewed_at: now()
-      });
-      if (stagedCandidate.duplicate) candidateDuplicates++;
-      staged++;
-      if (!eligible) { exceptions++; continue; }
-      const publisher = await upsertPublisher(candidate, stateCode, sourceVerified, endpoint, sources);
-      if (!publisher?.id) { exceptions++; continue; }
-      const assignment = await upsertAssignment(publisher, candidate, endpoint, sources);
-      if (!assignment?.id) { exceptions++; continue; }
-      ready++;
-      if (stagedCandidate.row?.id) {
-        await db(`publisher_discovery_candidates?id=eq.${stagedCandidate.row.id}`, {
-          method: 'PATCH', body: JSON.stringify({ admitted_publisher_id: publisher.id, updated_at: now() })
-        });
-      }
-    }
-
+    const coverage = calculateCoverageSummary({ candidates, existingPublishers: arr(existingPublishers), strategyResults: unitResults });
+    const failedUnits = unitResults.filter(item => ['PROVIDER_FAILED', 'VALIDATION_FAILED', 'PERSISTENCE_FAILED'].includes(item.status)).length;
+    const warningUnits = unitResults.filter(item => item.status === 'COMPLETED_WITH_WARNINGS').length;
+    const noResultUnits = unitResults.filter(item => item.status === 'COMPLETED_NO_RESULTS').length;
     const evidence = {
       runtime: 'NETLIFY_NATIVE',
-      engine: 'PUBLISHER_EXPANSION_ENGINE',
+      engine: 'SEQUENTIAL_ENTITY_CLASS_ORCHESTRATOR',
       taxonomy_version: PUBLISHER_DISCOVERY_TAXONOMY_VERSION,
+      nationwide_state_support: true,
       coverage,
-      strategy_results: strategyResults,
+      unit_results: unitResults,
       candidates_staged: staged,
       assignments_ready: ready,
       exceptions_isolated: exceptions,
-      duplicate_registry_matches: duplicates,
-      duplicate_candidate_rows_merged_or_skipped: candidateDuplicates,
+      duplicate_registry_matches: duplicateRegistry,
+      duplicate_candidate_rows_merged_or_skipped: duplicateCandidates,
+      existing_publishers_before_run: arr(existingPublishers).length,
       separate_acquisition_task: true,
       handoff_artifact: 'publisher_assignments.search_parameters.connection_config'
     };
@@ -376,40 +456,45 @@ export const handler = async event => {
     await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        status: ready ? 'COMPLETED' : 'PAUSED',
-        current_stage: ready ? 'ACQUISITION_ASSIGNMENTS_READY' : 'NO_READY_ASSIGNMENTS',
+        status: 'COMPLETED',
+        current_stage: 'ALL_ENTITY_CLASS_TASKS_TERMINAL',
         official_sources_identified: candidates.filter(candidate => candidate.official_source_verified === true).length,
         publishers_presented: staged,
-        completed_at: now(),
-        updated_at: now(),
-        evidence
+        publishers_approved: ready,
+        completed_at: now(), updated_at: now(), evidence
       })
     });
 
-    if (!ready) {
-      await patchRun(commandRunId, {
-        status: 'interrupted', aadp_state: 'PAUSED', current_stage: 'NO_READY_ASSIGNMENTS', progress_value: 100,
-        records_acquired: staged, records_accepted: 0, records_rejected: exceptions, action_required: true, completed_at: now(),
-        result_summary: `${staged} publisher candidates staged; none produced a READY acquisition assignment.`,
-        execution_evidence: evidence
-      });
-      return response(200, { ok: true, command_run_id: commandRunId, discovery_run_id: discoveryRunId, assignments_ready: 0, coverage });
-    }
-
     await patchRun(commandRunId, {
-      status: 'completed', aadp_state: 'COMPLETED', current_stage: 'ACQUISITION_ASSIGNMENTS_READY', progress_value: 100,
-      records_acquired: staged, records_accepted: ready, records_rejected: exceptions, action_required: false, completed_at: now(),
-      result_summary: `${ready} verified publishers are ready for the separate Acquisition Discovery task. No contract acquisition was launched.`,
+      status: 'completed',
+      aadp_state: failedUnits || warningUnits ? 'PARTIALLY_COMPLETE' : 'COMPLETED',
+      current_stage: 'ALL_ENTITY_CLASS_TASKS_TERMINAL',
+      progress_value: 100,
+      records_discovered: candidates.length,
+      records_acquired: staged,
+      records_accepted: ready,
+      records_rejected: exceptions,
+      warning_count: failedUnits + warningUnits,
+      failure_count: 0,
+      action_required: failedUnits > 0 || warningUnits > 0,
+      completed_at: now(),
+      result_summary: `${plan.length} entity-class tasks reached terminal status for ${stateCode}: ${ready} READY assignments, ${failedUnits} failed tasks, ${noResultUnits} zero-result tasks.`,
       execution_evidence: evidence
     });
+
     return response(200, {
       ok: true,
       command_run_id: commandRunId,
       discovery_run_id: discoveryRunId,
+      state_code: stateCode,
+      entity_class_tasks: plan.length,
+      tasks_terminal: unitResults.length,
+      failed_tasks: failedUnits,
+      no_result_tasks: noResultUnits,
       candidates_staged: staged,
       assignments_ready: ready,
       exceptions_isolated: exceptions,
-      coverage,
+      unit_results: unitResults,
       acquisition_launched: false,
       next_authorized_task: 'ACQUISITION_DISCOVERY'
     });
@@ -419,14 +504,14 @@ export const handler = async event => {
     if (discoveryRunId) {
       await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', completed_at: now(), updated_at: now(), evidence: { error: message, strategy_results: strategyResults } })
+        body: JSON.stringify({ status: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', completed_at: now(), updated_at: now(), evidence: { error: message, unit_results: unitResults } })
       }).catch(() => null);
     }
     await patchRun(commandRunId, {
       status: 'failed', aadp_state: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', progress_value: 100,
       failure_count: 1, action_required: true, completed_at: now(), result_summary: message,
-      execution_evidence: { strategy_results: strategyResults }
+      execution_evidence: { unit_results: unitResults }
     }).catch(() => null);
-    return response(500, { error: message, strategy_results: strategyResults });
+    return response(500, { error: message, unit_results: unitResults });
   }
 };
