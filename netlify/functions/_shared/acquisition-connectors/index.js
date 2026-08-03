@@ -1,6 +1,7 @@
 import { connector as laCountyEcaps } from './la-county-ecaps.js';
+import { connector as caCalEProcureCscr } from './ca-caleprocure-cscr.js';
 
-const CONNECTORS = Object.freeze([laCountyEcaps]);
+const CONNECTORS = Object.freeze([laCountyEcaps, caCalEProcureCscr]);
 
 const txt = value => String(value ?? '').trim();
 
