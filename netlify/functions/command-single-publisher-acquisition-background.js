@@ -17,7 +17,7 @@ async function latestReadyAssignment(publisherId) {
 
 async function insertRawRows(rows) {
   if (!rows.length) return [];
-  return await db('acquisition_raw_records?on_conflict=publisher_id,source_record_id,source_fingerprint', {
+  return await db('acquisition_raw_records?on_conflict=acquisition_run_id,publisher_id,source_record_id,source_fingerprint', {
     method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }
   }) || [];
 }
