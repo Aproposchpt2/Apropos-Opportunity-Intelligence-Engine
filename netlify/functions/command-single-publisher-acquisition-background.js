@@ -1,0 +1,210 @@
+import { createHash } from 'node:crypto';
+import { response, parseBody, requireDashboardAuth, db } from './_shared/native-runtime.js';
+import { resolveConnector } from './_shared/acquisition-connectors/index.js';
+
+const now = () => new Date().toISOString();
+const txt = value => String(value ?? '').trim();
+const hash = value => createHash('sha256').update(String(value)).digest('hex');
+
+async function patchRun(id, values) {
+  await db(`command_runs?id=eq.${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ...values, last_activity_at: now() })
+  });
+}
+
+async function latestReadyAssignment(publisherId) {
+  const rows = await db(`publisher_assignments?publisher_id=eq.${encodeURIComponent(publisherId)}&status=eq.READY&select=*&order=updated_at.desc&limit=1`);
+  return rows?.[0] || null;
+}
+
+async function insertRawRows(rows) {
+  if (!rows.length) return [];
+  return await db('acquisition_raw_records?on_conflict=publisher_id,source_record_id,source_fingerprint', {
+    method: 'POST',
+    body: JSON.stringify(rows),
+    headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }
+  }) || [];
+}
+
+async function routePending(batchSize = 500) {
+  try {
+    return await db('rpc/aadp_route_pending_raw_records', {
+      method: 'POST',
+      body: JSON.stringify({ p_batch_size: batchSize })
+    }) || {};
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export const handler = async event => {
+  if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
+  if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
+
+  const body = parseBody(event);
+  const commandRunId = txt(body.command_run_id);
+  const stateCode = txt(body.state_code).toUpperCase();
+  const publisherId = txt(body.publisher_id);
+
+  if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode) || !publisherId) {
+    return response(400, { error: 'command_run_id, state_code, and publisher_id are required.' });
+  }
+
+  let acquisitionRunId = null;
+  try {
+    await patchRun(commandRunId, {
+      status: 'running', aadp_state: 'RUNNING',
+      current_stage: 'RESOLVING_SINGLE_PUBLISHER_CONNECTOR', progress_value: 5,
+      result_summary: 'Resolving the tested connector for one publisher.'
+    });
+
+    const publishers = await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&verified=eq.true&select=*`);
+    const publisher = publishers?.[0];
+    if (!publisher) throw new Error('The selected verified publisher was not found for this state.');
+
+    const assignment = await latestReadyAssignment(publisherId);
+    if (!assignment) throw new Error('The selected publisher has no READY acquisition assignment.');
+
+    const connector = resolveConnector({ publisher, assignment });
+    const endpoint = txt(assignment.search_endpoint || publisher.search_endpoint || publisher.procurement_website || publisher.official_website);
+
+    const run = (await db('acquisition_runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        command_run_id: commandRunId,
+        assignment_id: assignment.id,
+        status: 'RUNNING',
+        started_at: now(),
+        evidence: {
+          execution_mode: 'SINGLE_PUBLISHER',
+          connector_key: connector.key,
+          publisher_id: publisher.id,
+          publisher_name: publisher.publisher_name,
+          endpoint
+        }
+      })
+    }))?.[0];
+    acquisitionRunId = run?.id;
+    if (!acquisitionRunId) throw new Error('Acquisition run creation failed.');
+
+    const result = await connector.acquire({
+      endpoint,
+      onPage: async progress => {
+        const percentage = Math.min(85, 10 + Math.round((progress.page / Math.max(progress.totalPages, 1)) * 75));
+        await patchRun(commandRunId, {
+          current_stage: 'ACQUIRING_SINGLE_PUBLISHER',
+          progress_value: percentage,
+          records_discovered: progress.page === progress.totalPages ? progress.totalReported : undefined,
+          result_summary: `${publisher.publisher_name}: page ${progress.page} of ${progress.totalPages}.`
+        });
+      }
+    });
+
+    const rawRows = result.records.map(record => {
+      const sourceId = txt(record.source_record_id || record.solicitation_number);
+      const sourceUrl = txt(record.source_url || result.source_url || endpoint);
+      const serialized = JSON.stringify(record);
+      return {
+        acquisition_run_id: acquisitionRunId,
+        assignment_id: assignment.id,
+        publisher_id: publisher.id,
+        source_record_id: sourceId,
+        source_url: sourceUrl,
+        raw_payload: {
+          ...record,
+          __connector_key: connector.key,
+          __source_page_type: 'SOLICITATION_LISTING',
+          __execution_mode: 'SINGLE_PUBLISHER'
+        },
+        source_fingerprint: hash(`${publisher.id}:${sourceId}:${sourceUrl}`),
+        content_fingerprint: hash(serialized),
+        processing_status: 'RAW',
+        detail_retrieval_status: 'LISTING_COMPLETE',
+        detail_retrieved_at: now()
+      };
+    });
+
+    const inserted = await insertRawRows(rawRows);
+    const duplicates = rawRows.length - inserted.length;
+
+    await patchRun(commandRunId, {
+      current_stage: 'POSTGRES_QUALIFICATION_ROUTING',
+      progress_value: 92,
+      records_discovered: rawRows.length,
+      records_acquired: inserted.length,
+      result_summary: `${publisher.publisher_name}: ${rawRows.length} unique listings collected; routing accepted records.`
+    });
+
+    const routing = await routePending(Math.max(500, rawRows.length));
+    const completedAt = now();
+    const countMatches = result.reconciliation?.count_matches;
+    const status = countMatches === false ? 'PARTIAL' : 'COMPLETED';
+
+    await db(`acquisition_runs?id=eq.${acquisitionRunId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status,
+        records_discovered: rawRows.length,
+        records_acquired: inserted.length,
+        pages_processed: result.pages_processed,
+        pagination_complete: countMatches !== false,
+        completed_at: completedAt,
+        evidence: {
+          connector_key: connector.key,
+          execution_mode: 'SINGLE_PUBLISHER',
+          publisher_reported_total: result.total_reported,
+          unique_records: rawRows.length,
+          inserted_records: inserted.length,
+          duplicates,
+          reconciliation: result.reconciliation,
+          routing
+        }
+      })
+    });
+
+    await patchRun(commandRunId, {
+      status: countMatches === false ? 'interrupted' : 'completed',
+      aadp_state: countMatches === false ? 'PAUSED' : 'COMPLETED',
+      current_stage: countMatches === false ? 'COUNT_RECONCILIATION_REQUIRED' : 'COMPLETED',
+      progress_value: 100,
+      records_discovered: rawRows.length,
+      records_acquired: inserted.length,
+      records_accepted: Number(routing?.canonical_inserted || 0),
+      action_required: countMatches === false,
+      completed_at: completedAt,
+      result_summary: `${publisher.publisher_name}: collected ${rawRows.length} of ${result.total_reported ?? 'unknown'} reported open contracts; ${inserted.length} new raw records, ${duplicates} duplicates.`
+    });
+
+    return response(200, {
+      ok: countMatches !== false,
+      command_run_id: commandRunId,
+      acquisition_run_id: acquisitionRunId,
+      publisher_id: publisher.id,
+      publisher_name: publisher.publisher_name,
+      connector_key: connector.key,
+      total_reported: result.total_reported,
+      records_collected: rawRows.length,
+      records_inserted: inserted.length,
+      duplicates,
+      pages_processed: result.pages_processed,
+      reconciliation: result.reconciliation,
+      routing
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('command-single-publisher-acquisition-background failed', error);
+    if (acquisitionRunId) {
+      await db(`acquisition_runs?id=eq.${acquisitionRunId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'FAILED', retrieval_failures: 1, completed_at: now(), evidence: { error: message, execution_mode: 'SINGLE_PUBLISHER' } })
+      }).catch(() => null);
+    }
+    await patchRun(commandRunId, {
+      status: 'failed', aadp_state: 'FAILED', current_stage: 'SINGLE_PUBLISHER_ACQUISITION_FAILED',
+      progress_value: 100, failure_count: 1, action_required: true,
+      completed_at: now(), result_summary: message
+    }).catch(() => null);
+    return response(500, { error: message });
+  }
+};
