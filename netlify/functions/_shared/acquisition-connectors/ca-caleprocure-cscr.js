@@ -22,6 +22,18 @@ function absoluteUrl(href, base) {
   catch { return null; }
 }
 
+function buildRelayDetailUrl(businessUnit, eventId) {
+  const unit = txt(businessUnit);
+  const id = txt(eventId);
+  if (!unit || !id) return null;
+  const url = new URL('https://caleprocure.ca.gov/PSRelay/AUC_MANAGE_BIDS.AUC_RESP_INQ_AUC.GBL');
+  url.searchParams.set('Page', 'AUC_RESP_INQ_AUC');
+  url.searchParams.set('Action', 'U');
+  url.searchParams.set('BUSINESS_UNIT', unit);
+  url.searchParams.set('AUC_ID', id);
+  return url.toString();
+}
+
 function parseReportedTotal(html) {
   const text = decodeHtml(html);
   const match = text.match(/\b1\s*-\s*[\d,]+\s+of\s+([\d,]+)\b/i)
@@ -55,8 +67,6 @@ export function parseCalEProcureRows(html, pageUrl = DEFAULT_SEARCH_URL) {
     if (cells.length < 8) continue;
     const values = cells.map(decodeHtml);
 
-    // Public CSCR columns: Department, Department Name, Event ID, Event Name,
-    // Format, Type, End Date, Status, Buyer Name, Buyer Email.
     const eventIndex = values.findIndex((value, index) => index >= 1 && /^(?:\d{6,10}|[A-Z0-9][A-Z0-9._-]{4,30})$/i.test(value));
     if (eventIndex < 0 || eventIndex + 5 >= values.length) continue;
 
@@ -72,7 +82,14 @@ export function parseCalEProcureRows(html, pageUrl = DEFAULT_SEARCH_URL) {
     const buyerEmail = values.slice(eventIndex + 7).find(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) || null;
 
     if (!eventName || !/posted|open/i.test(status || '')) continue;
-    const detailUrl = cells.flatMap(cell => cellLinks(cell, pageUrl)).find(url => /AUC_RESP_INQ_DTL|AUC_ID=|event/i.test(url)) || null;
+
+    const linkedDetailUrl = cells
+      .flatMap(cell => cellLinks(cell, pageUrl))
+      .find(url => /AUC_RESP_INQ_DTL|PSRelay\/AUC_MANAGE_BIDS|AUC_ID=/i.test(url)) || null;
+    const relayDetailUrl = buildRelayDetailUrl(department, eventId);
+    const detailUrl = linkedDetailUrl || relayDetailUrl;
+    if (!detailUrl) continue;
+
     const key = `${department || ''}|${eventId}`.toUpperCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -93,7 +110,7 @@ export function parseCalEProcureRows(html, pageUrl = DEFAULT_SEARCH_URL) {
       close_date_text: endDate,
       response_deadline: endDate,
       status: 'OPEN',
-      source_url: detailUrl || pageUrl,
+      source_url: detailUrl,
       listing_url: pageUrl,
       state_code: 'CA',
       procurement_platform: 'Cal eProcure / California State Contracts Register',
@@ -101,7 +118,8 @@ export function parseCalEProcureRows(html, pageUrl = DEFAULT_SEARCH_URL) {
       requirements: eventName ? { summary: eventName, source: 'official_cscr_listing' } : null,
       __connector_evidence: {
         connector: 'CA_CALEPROCURE_CSCR',
-        detail_url_resolved: Boolean(detailUrl),
+        detail_url_resolved: true,
+        detail_url_strategy: linkedDetailUrl ? 'PUBLISHED_DETAIL_LINK' : 'PSRELAY_BUSINESS_UNIT_EVENT_ID',
         public_guest_search: true
       }
     });
@@ -116,7 +134,7 @@ async function fetchPage(url, timeoutMs = 45000) {
     const response = await fetch(url, {
       headers: {
         Accept: 'text/html,application/xhtml+xml',
-        'User-Agent': 'APROPOS-APIE-Cal-eProcure-Connector/1.0',
+        'User-Agent': 'APROPOS-APIE-Cal-eProcure-Connector/1.1',
         'Cache-Control': 'no-cache'
       },
       redirect: 'follow',
@@ -146,12 +164,16 @@ export const connector = Object.freeze({
     const totalReported = parseReportedTotal(result.html);
 
     if (!records.length) {
-      throw new Error('Cal eProcure returned no parseable posted CSCR events. The PeopleSoft guest-search response format may have changed.');
+      throw new Error('Cal eProcure returned no parseable posted CSCR events with contract-specific detail routes.');
+    }
+    if (records.some(record => record.source_url === result.finalUrl || !/AUC_ID=/i.test(record.source_url))) {
+      throw new Error('Cal eProcure connector validation failed: one or more records lack contract-specific detail routes.');
     }
 
     await onPage?.({ page: 1, totalPages: 1, totalReported, records: records.length });
     return {
       connector_key: 'CA_CALEPROCURE_CSCR',
+      connector_version: '1.1.0',
       source_url: result.finalUrl,
       total_reported: totalReported,
       pages_processed: 1,
