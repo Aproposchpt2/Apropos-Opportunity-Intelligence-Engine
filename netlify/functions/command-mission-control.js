@@ -30,6 +30,16 @@ export const handler = async event => {
     if (requiresPublisher && !publisherId) return response(400, { error: 'publisher_id is required. This task executes one publisher at a time.', code: 'SINGLE_PUBLISHER_REQUIRED' });
     if (!requiresPublisher && !['STATEWIDE', 'STATEWIDE_ALL', 'STATE_AND_LOCAL', 'REFRESH'].includes(discoveryScope)) return response(400, { error: 'Unsupported discovery scope.' });
 
+    if (adapter.kind === 'acquisition') {
+      const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&select=id,publisher_name,configuration`))?.[0];
+      if (!publisher) return response(404, { error: 'Selected publisher profile was not found.' });
+      const certification = String(publisher.configuration?.certification_status || 'DEVELOPMENT').toUpperCase();
+      if (!['CERTIFIED', 'PRODUCTION'].includes(certification)) return response(409, {
+        error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
+        code: 'PUBLISHER_CERTIFICATION_REQUIRED', certification_status: certification
+      });
+    }
+
     const missionName = String(body.mission_name || `${stateCode} — ${adapter.label}`).trim();
     const createdAt = now();
     const configuration = requiresPublisher
