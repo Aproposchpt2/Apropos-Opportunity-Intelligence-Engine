@@ -1,5 +1,6 @@
 const TASKS={
   PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',field:{id:'discovery_scope',label:'Discovery Scope',type:'select',defaultValue:'STATEWIDE_ALL',options:[['STATEWIDE_ALL','Comprehensive — all publisher classes (Recommended)'],['STATE_AND_LOCAL','Expanded — state and local ecosystem'],['STATEWIDE','Core — statewide publishers'],['REFRESH','Refresh existing publisher intelligence']]},operation:'command-mission-control'},
+  VERIFY_PUBLISHER_CONNECTION:{agent:'Publisher Engineering',state:'required',publisher:true,operation:'command-mission-control'},
   ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',publisher:true,operation:'command-mission-control'},
   STATE_MISSION:{agent:'State Operations',state:'required',field:{id:'state_operation',label:'Operation',type:'select',options:[['EVALUATE_READINESS','Evaluate operational state'],['RECONCILE_CAPABILITIES','Reconcile capabilities'],['REFRESH_STATE_INTELLIGENCE','Refresh state intelligence']]},operation:'command-mission-control'},
   AADP_PROCESSING:{agent:'AADP Processing',state:'optional',field:{id:'processing_scope',label:'Processing Scope',type:'select',options:[['UNPROCESSED','Unprocessed acquisition records'],['FAILED_RETRYABLE','Retryable failures'],['RECENT','Recently acquired records'],['ALL_PENDING','All pending records']]},operation:'command-automated-task'},
@@ -13,7 +14,7 @@ const TASKS={
 const taskEl=()=>document.getElementById('eccMissionType');
 const stateEl=()=>document.getElementById('eccMissionState');
 const configEl=()=>document.getElementById('eccTaskConfiguration');
-const escAttr=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const escAttr=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
 function selectedText(el){return el?.selectedOptions?.[0]?.textContent?.trim()||''}
 function setAgent(agent=''){document.getElementById('eccAgent').value=agent;document.getElementById('eccAgentDisplay').value=agent||'Select a task'}
 function renderField(field){
@@ -35,16 +36,18 @@ function updateConnectorDisplay(){
 }
 async function renderPublisherSelector(){
   const state=stateEl().value;
+  const verification=taskEl().value==='VERIFY_PUBLISHER_CONNECTION';
   if(!state||state==='ALL'){
-    configEl().innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Select one state first</option></select><small>Acquisition Discovery requires one state and one publisher.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly></label>';
+    configEl().innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Select one state first</option></select><small>This task requires one state and one publisher.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly></label>';
     return;
   }
   configEl().innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Loading publisher profiles…</option></select><small>Loading verified publisher profiles.</small></label><label>Connector<input id="eccConnectorDisplay" value="Resolving…" readonly></label>';
   try{
-    const d=await invoke('command-publisher-options',{state_code:state});
+    const d=await invoke('command-publisher-options',{state_code:state,include_testing:verification});
     const rows=d.publishers||[];
-    const options=rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}"${p.selectable?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${p.selectable?'':' — NOT READY'}</option>`).join('');
-    configEl().innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${options}</select><small>One publisher is required. Publishers without an approved connector profile cannot be executed.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the approved Publisher Profile.</small></label>`;
+    const options=rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${verification||p.selectable?'':' — NOT CERTIFIED'}</option>`).join('');
+    const note=verification?'EAG-001 performs read-only validation and writes certification evidence only.':'Only certified publishers may execute Acquisition Discovery.';
+    configEl().innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${options}</select><small>${note}</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the Publisher Profile.</small></label>`;
     document.getElementById('eccPublisher')?.addEventListener('change',updateConnectorDisplay);
   }catch(err){configEl().innerHTML=`<label>Publisher<select id="eccPublisher" required disabled><option value="">Publisher profiles unavailable</option></select><small>${escAttr(err.message)}</small></label><label>Connector<input id="eccConnectorDisplay" value="Unavailable" readonly></label>`}
 }
@@ -61,19 +64,11 @@ function buildConfiguration(){
   const publisher=document.getElementById('eccPublisher');
   if(publisher?.value){
     const o=publisher.selectedOptions[0];
-    cfg.publisher_scope='SINGLE';
-    cfg.publisher_id=publisher.value;
-    cfg.publisher_name=o.textContent.split(' — ')[0];
-    cfg.acquisition_method=o.dataset.method||'AUTO';
-    cfg.search_endpoint=o.dataset.endpoint||null;
-    cfg.platform=o.dataset.platform||null;
-    cfg.connector_key=o.dataset.connector||null;
+    cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null;cfg.connector_key=o.dataset.connector||null;
   }
   return cfg
 }
-function resolveRunId(result){
-  return result?.run?.id||result?.run_id||result?.command_run_id||result?.mission?.command_run_id||result?.execution?.run_id||result?.execution?.command_run_id||null;
-}
+function resolveRunId(result){return result?.run?.id||result?.run_id||result?.command_run_id||result?.mission?.command_run_id||result?.execution?.run_id||result?.execution?.command_run_id||null}
 window.addEventListener('apie:authenticated',configureTask);
 taskEl().addEventListener('change',configureTask);
 stateEl().addEventListener('change',configureTask);
@@ -84,20 +79,11 @@ document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{
   if(task.state==='required'&&(!stateCode||stateCode==='ALL')){msg.textContent='Select one state for this task.';return}
   const dynamic=document.getElementById('eccDynamicField');if(dynamic&&!dynamic.value){msg.textContent=`Select ${dynamic.closest('label').childNodes[0].textContent.trim()}.`;return}
   const publisher=document.getElementById('eccPublisher');
-  if(task.publisher&&(!publisher||!publisher.value)){msg.textContent='Select one READY publisher before executing Acquisition Discovery.';return}
-  const config=buildConfiguration();
-  const publisherLabel=config.publisher_name||'Not selected';
+  if(task.publisher&&(!publisher||!publisher.value)){msg.textContent='Select one publisher before execution.';return}
+  const config=buildConfiguration(),publisherLabel=config.publisher_name||'Not selected';
   const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${selectedText(taskEl())} — ${stateCode==='ALL'?'All States':selectedText(stateEl())} — Publisher ${publisherLabel}`,mission_config:config,...config};
   window.eccBeginTaskForce?.(missionType,stateCode==='ALL'?null:stateCode);
-  msg.textContent='APIE is resolving the Publisher Profile and executing the assigned connector…';
-  try{
-    const r=await invoke(task.operation,payload);
-    const runId=resolveRunId(r);
-    window.eccFocusTaskForce?.(runId);
-    msg.textContent=`Task Force launched. ${r.execution?.status||r.run?.status||'Monitoring started'}.`;
-    await eccLoad();
-  }catch(err){
-    window.eccClearTaskForceMonitor?.();
-    msg.textContent=err.message;
-  }
+  msg.textContent=missionType==='VERIFY_PUBLISHER_CONNECTION'?'EAG-001 is testing the production connector without acquiring records…':'APIE is resolving the Publisher Profile and executing the assigned connector…';
+  try{const r=await invoke(task.operation,payload);const runId=resolveRunId(r);window.eccFocusTaskForce?.(runId);msg.textContent=`Task Force launched. ${r.execution?.status||r.run?.status||'Monitoring started'}.`;await eccLoad()}
+  catch(err){window.eccClearTaskForceMonitor?.();msg.textContent=err.message}
 });
