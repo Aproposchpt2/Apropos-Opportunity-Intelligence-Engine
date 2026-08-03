@@ -26,18 +26,27 @@ function renderField(field){
   }
   return'';
 }
+function updateConnectorDisplay(){
+  const publisher=document.getElementById('eccPublisher');
+  const display=document.getElementById('eccConnectorDisplay');
+  if(!publisher||!display)return;
+  const option=publisher.selectedOptions?.[0];
+  display.value=option?.dataset?.connector||'Select a publisher';
+}
 async function renderPublisherSelector(){
   const state=stateEl().value;
   if(!state||state==='ALL'){
-    configEl().innerHTML='<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option></select><small>Select a specific state to load individual publishers.</small></label>';
+    configEl().innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Select one state first</option></select><small>Acquisition Discovery requires one state and one publisher.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly></label>';
     return;
   }
-  configEl().innerHTML='<label>Publisher<select id="eccPublisher" disabled><option value="ALL" selected>ALL</option></select><small>Loading publishers…</small></label>';
+  configEl().innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Loading publisher profiles…</option></select><small>Loading verified publisher profiles.</small></label><label>Connector<input id="eccConnectorDisplay" value="Resolving…" readonly></label>';
   try{
     const d=await invoke('command-publisher-options',{state_code:state});
     const rows=d.publishers||[];
-    configEl().innerHTML=`<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option>${rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}">${escAttr(p.publisher_name)} — ${escAttr(p.acquisition_method||'AUTO')}</option>`).join('')}</select><small>ALL is the default. Select one publisher only when narrower execution is required.</small></label>`;
-  }catch(err){configEl().innerHTML=`<label>Publisher<select id="eccPublisher"><option value="ALL" selected>ALL</option></select><small>${escAttr(err.message)}</small></label>`}
+    const options=rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}"${p.selectable?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${p.selectable?'':' — NOT READY'}</option>`).join('');
+    configEl().innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${options}</select><small>One publisher is required. Publishers without an approved connector profile cannot be executed.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the approved Publisher Profile.</small></label>`;
+    document.getElementById('eccPublisher')?.addEventListener('change',updateConnectorDisplay);
+  }catch(err){configEl().innerHTML=`<label>Publisher<select id="eccPublisher" required disabled><option value="">Publisher profiles unavailable</option></select><small>${escAttr(err.message)}</small></label><label>Connector<input id="eccConnectorDisplay" value="Unavailable" readonly></label>`}
 }
 async function configureTask(){
   const task=TASKS[taskEl().value];setAgent(task?.agent||'');configEl().innerHTML='';
@@ -47,12 +56,18 @@ async function configureTask(){
   if(task.publisher)await renderPublisherSelector();else configEl().innerHTML=renderField(task.field)
 }
 function buildConfiguration(){
-  const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','TARGET','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false};
+  const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','PUBLISHER','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false};
   const dynamic=document.getElementById('eccDynamicField');if(dynamic)cfg[dynamic.dataset.key]=dynamic.value;
   const publisher=document.getElementById('eccPublisher');
-  if(publisher){
-    if(publisher.value==='ALL'){cfg.publisher_scope='ALL';cfg.publisher_id=null;cfg.publisher_name='ALL';cfg.acquisition_method='AUTO'}
-    else if(publisher.value){const o=publisher.selectedOptions[0];cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null}
+  if(publisher?.value){
+    const o=publisher.selectedOptions[0];
+    cfg.publisher_scope='SINGLE';
+    cfg.publisher_id=publisher.value;
+    cfg.publisher_name=o.textContent.split(' — ')[0];
+    cfg.acquisition_method=o.dataset.method||'AUTO';
+    cfg.search_endpoint=o.dataset.endpoint||null;
+    cfg.platform=o.dataset.platform||null;
+    cfg.connector_key=o.dataset.connector||null;
   }
   return cfg
 }
@@ -68,11 +83,13 @@ document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{
   if(!task||!agent){msg.textContent='Select a task before execution.';return}
   if(task.state==='required'&&(!stateCode||stateCode==='ALL')){msg.textContent='Select one state for this task.';return}
   const dynamic=document.getElementById('eccDynamicField');if(dynamic&&!dynamic.value){msg.textContent=`Select ${dynamic.closest('label').childNodes[0].textContent.trim()}.`;return}
+  const publisher=document.getElementById('eccPublisher');
+  if(task.publisher&&(!publisher||!publisher.value)){msg.textContent='Select one READY publisher before executing Acquisition Discovery.';return}
   const config=buildConfiguration();
-  const publisherLabel=config.publisher_name||'ALL';
+  const publisherLabel=config.publisher_name||'Not selected';
   const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${selectedText(taskEl())} — ${stateCode==='ALL'?'All States':selectedText(stateEl())} — Publisher ${publisherLabel}`,mission_config:config,...config};
   window.eccBeginTaskForce?.(missionType,stateCode==='ALL'?null:stateCode);
-  msg.textContent='APIE is resolving configuration and executing the Task Force…';
+  msg.textContent='APIE is resolving the Publisher Profile and executing the assigned connector…';
   try{
     const r=await invoke(task.operation,payload);
     const runId=resolveRunId(r);
