@@ -1,4 +1,4 @@
-import { PUBLISHER_DISCOVERY_ENTITY_CLASSES, buildPublisherDiscoveryPrompt } from './publisher-discovery-taxonomy.js';
+import { PUBLISHER_DISCOVERY_ENTITY_CLASSES, buildPublisherDiscoveryPrompt, parseCountyDiscoveryScope } from './publisher-discovery-taxonomy.js';
 
 export const PUBLISHER_DISCOVERY_UNITS = Object.freeze(
   PUBLISHER_DISCOVERY_ENTITY_CLASSES.map((entityClass, index) => Object.freeze({
@@ -13,6 +13,8 @@ export const PUBLISHER_DISCOVERY_UNITS = Object.freeze(
 export const PUBLISHER_DISCOVERY_STRATEGIES = PUBLISHER_DISCOVERY_UNITS;
 
 export function buildPublisherExpansionPlan({ stateCode, discoveryScope }) {
+  const countyScope = parseCountyDiscoveryScope(discoveryScope);
+  const targetLabel = countyScope ? `${countyScope.countyName}, ${stateCode}` : stateCode;
   return PUBLISHER_DISCOVERY_UNITS.map(unit => ({
     ...unit,
     entityClasses: [unit.entityClass],
@@ -26,10 +28,11 @@ export function buildPublisherExpansionPlan({ stateCode, discoveryScope }) {
 
 MANDATORY UNIT EXECUTION RULES:
 - This task is assigned to exactly one publisher class: ${unit.entityClass}.
-- Search broadly across the entire selected state, including statewide, regional, county, municipal, district, institutional, tribal, publicly funded, and private-public procurement ecosystems where applicable to this class.
-- Use multiple distinct search formulations and official directories appropriate to this entity class.
-- Do not stop after locating prominent organizations. Continue seeking smaller, regional, local, independent, and specialized publishers in this class.
+- Search only for publishers with a verifiable nexus to ${targetLabel}; do not broaden the task into unrestricted statewide discovery.
+- Use multiple distinct search formulations and official directories appropriate to this entity class and county.
+- Do not stop after locating prominent organizations. Continue seeking smaller, local, regional, independent, and specialized publishers serving the county.
 - Every returned candidate must have official-source evidence and the most direct usable procurement endpoint available.
+- Every candidate must include county_name, county_fips when known, procurement platform, access class, machine-to-machine status, connector strategy, engineering complexity, reuse score, and connector ROI score.
 - A successful search with zero qualifying publishers must return {"candidates":[]} rather than inventing candidates.
 - Completion of this unit, whether successful, zero-result, partial, provider-failed, validation-failed, or persistence-failed, must not prevent the next entity-class task from executing.
 - The unit result must be independently auditable and must identify this entity class exactly.`
