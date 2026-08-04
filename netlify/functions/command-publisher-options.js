@@ -17,7 +17,7 @@ export const handler = async event => {
     const includeTesting = body.include_testing === true;
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
     if (!countyName) return response(400, { error: 'county_name is required.' });
-    const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}&verified=eq.true&select=id,publisher_name,state_code,county_name,county_fips,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,access_class,machine_to_machine_supported,connector_strategy,engineering_complexity,reuse_score,connector_roi_score,last_verified_at,configuration&order=publisher_name.asc`);
+    const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}&verified=eq.true&access_status=eq.READY&select=id,publisher_name,state_code,county_name,county_fips,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,access_class,machine_to_machine_supported,connector_strategy,engineering_complexity,reuse_score,connector_roi_score,last_verified_at,configuration&order=publisher_name.asc`);
     const publishers = (rows || []).filter(p => String(p.publisher_name || '').trim()).map(p => {
       const configuration = parseObject(p.configuration);
       const endpoint = p.search_endpoint || p.procurement_website || p.official_website || null;
