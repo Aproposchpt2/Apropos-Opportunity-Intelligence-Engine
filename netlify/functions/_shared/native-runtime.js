@@ -40,8 +40,7 @@ export function header(event, name) {
 }
 
 export function parseBody(event) {
-  try { return event?.body ? JSON.parse(event.body) : {};
-  }
+  try { return event?.body ? JSON.parse(event.body) : {}; }
   catch { return {}; }
 }
 
@@ -61,20 +60,20 @@ function databaseCredentials() {
   return { url, key };
 }
 
-function databaseHeaders(key, overrides = {}) {
-  const headers = {
-    apikey: key,
-    'Content-Type': 'application/json',
-    Prefer: 'return=representation'
-  };
-
-  // Legacy service_role keys are JWTs and may be used as Bearer tokens.
-  // Modern sb_secret_* keys are opaque API keys and must not be parsed as JWTs.
+function serviceHeaders(key, overrides = {}) {
+  const headers = { apikey: key };
   if (!key.startsWith('sb_secret_') && !key.startsWith('sb_publishable_')) {
     headers.Authorization = `Bearer ${key}`;
   }
-
   return { ...headers, ...overrides };
+}
+
+function databaseHeaders(key, overrides = {}) {
+  return serviceHeaders(key, {
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation',
+    ...overrides
+  });
 }
 
 export async function db(path, init = {}) {
@@ -105,6 +104,42 @@ export async function db(path, init = {}) {
     }
 
     return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function encodeStoragePath(path) {
+  return String(path || '').split('/').map(segment => encodeURIComponent(segment)).join('/');
+}
+
+export async function storageUpload(bucket, objectPath, bytes, contentType = 'application/octet-stream', upsert = true) {
+  const { url, key } = databaseCredentials();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch(`${url}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStoragePath(objectPath)}`, {
+      method: 'POST',
+      headers: serviceHeaders(key, {
+        'Content-Type': contentType || 'application/octet-stream',
+        'x-upsert': upsert ? 'true' : 'false'
+      }),
+      body: bytes,
+      signal: controller.signal
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let detail = text;
+      try {
+        const parsed = text ? JSON.parse(text) : null;
+        detail = parsed?.message || parsed?.error || parsed?.statusCode || text;
+      } catch {}
+      const error = new Error(detail || `Storage upload failed (${res.status})`);
+      error.status = res.status;
+      throw error;
+    }
+    try { return text ? JSON.parse(text) : { ok: true }; }
+    catch { return { ok: true, response: text }; }
   } finally {
     clearTimeout(timeout);
   }
