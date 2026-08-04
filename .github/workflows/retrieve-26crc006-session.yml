@@ -1,0 +1,36 @@
+name: Retrieve 26CRC006 Session Chain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/retrieve-calprocure-package-session.mjs
+      - .github/workflows/retrieve-26crc006-session.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Retrieve official package through guest session
+        run: node scripts/retrieve-calprocure-package-session.mjs
+      - name: Inventory evidence
+        if: always()
+        run: find artifacts/26CRC006-session -type f -printf '%s %p\n' | sort -n | tee artifacts/26CRC006-session/inventory.txt || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 26CRC006-session-chain
+          path: artifacts/26CRC006-session
+          if-no-files-found: error
+          retention-days: 7
