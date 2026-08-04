@@ -23,7 +23,7 @@ export const handler = async event => {
     const endpoint = txt(assignment.search_endpoint || publisher.search_endpoint || publisher.procurement_website || publisher.official_website);
 
     await patchRun(commandRunId, { current_stage: 'EAG_001_VERIFYING_SEARCH', progress_value: 25, result_summary: `${publisher.publisher_name}: verifying structured solicitation records.` });
-    const report = await connector.verify({ endpoint, sampleSize: Number(body.sample_size || 10), onSample: async status => {
+    const report = await connector.verify({ endpoint, publisher, assignment, sampleSize: Number(body.sample_size || 10), onSample: async status => {
       const pct = 35 + Math.round((status.processed / Math.max(status.total, 1)) * 50);
       await patchRun(commandRunId, { current_stage: 'EAG_001_VERIFYING_DETAIL_RECORDS', progress_value: Math.min(85, pct), result_summary: `Detail verification: ${status.processed}/${status.total}; ${status.passed} passed.` });
     }});

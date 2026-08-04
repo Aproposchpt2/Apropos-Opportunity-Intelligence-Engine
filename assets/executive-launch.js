@@ -48,8 +48,13 @@ async function renderPublisherSelector(){
   try{
     const d=await invoke('command-publisher-options',{state_code:state,county_name:county.value,include_testing:verification});
     const rows=d.publishers||[];
-    const options=rows.map(p=>`<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${verification||p.selectable?'':' — NOT CERTIFIED'}</option>`).join('');
-    const note=verification?'EAG-001 performs read-only validation and writes certification evidence only.':'Only CERTIFIED or PRODUCTION publishers may execute Acquisition Discovery.';
+    const options=rows.map(p=>{
+      const prepared=p.minimum_access_prepared===true;
+      const suffix=verification||p.selectable?'':prepared?' — PREPARED: VERIFY FIRST':' — NOT CERTIFIED';
+      return `<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}" data-execution-mode="${escAttr(p.execution_mode||'NOT_PREPARED')}"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${suffix}</option>`;
+    }).join('');
+    const preparedCount=rows.filter(p=>p.minimum_access_prepared===true&&!p.selectable).length;
+    const note=verification?'EAG-001 performs one read-only, cost-capped validation against the selected official public source.':`CERTIFIED or PRODUCTION publishers can execute immediately.${preparedCount?` ${preparedCount} minimum-access targets are prepared and listed below; verify one target at a time with EAG-001 to enable it.`:''}`;
     const empty=rows.length?'':`<option value="" disabled>No publisher profiles are assigned to ${escAttr(county.value)}</option>`;
     fields.innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${empty}${options}</select><small>${note}</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the county-scoped Publisher Profile.</small></label>`;
     document.getElementById('eccPublisher')?.addEventListener('change',updateConnectorDisplay);
@@ -87,7 +92,7 @@ function buildConfiguration(){
   const publisher=document.getElementById('eccPublisher');
   if(publisher?.value){
     const o=publisher.selectedOptions[0];
-    cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null;cfg.connector_key=o.dataset.connector||null;
+    cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null;cfg.connector_key=o.dataset.connector||null;cfg.execution_mode=o.dataset.executionMode||null;
   }
   return cfg
 }
