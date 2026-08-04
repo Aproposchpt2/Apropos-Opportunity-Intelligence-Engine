@@ -9,8 +9,9 @@ test('publisher discovery runs one entity class per background invocation', asyn
   const source = await readFile(workerPath, 'utf8');
   assert.match(source, /ONE_ENTITY_CLASS_PER_BACKGROUND_INVOCATION/);
   assert.match(source, /unit_index/);
+  assert.match(source, /const unit = plan\[nextIndex\]/);
   assert.match(source, /dispatchNext/);
-  assert.doesNotMatch(source, /for \(let index = 0; index < plan\.length; index\+\+\)/);
+  assert.doesNotMatch(source, /for\s*\([^)]*\bof\s+plan\b/);
 });
 
 test('publisher discovery chain supports authenticated continuation and resume', async () => {
