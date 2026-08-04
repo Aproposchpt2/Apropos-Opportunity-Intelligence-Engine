@@ -1,0 +1,36 @@
+name: Download 26CRC006 Official Package V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/download-26crc006-package-v2.mjs
+      - .github/workflows/download-26crc006-package-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Download official contract package
+        run: node scripts/download-26crc006-package-v2.mjs
+      - name: Inventory package
+        if: always()
+        run: find artifacts/26CRC006-package-v2 -type f -printf '%s %p\n' | sort -n | tee artifacts/26CRC006-package-v2/inventory.txt || true
+      - name: Upload package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 26CRC006-official-package-v2
+          path: artifacts/26CRC006-package-v2
+          if-no-files-found: error
+          retention-days: 7
