@@ -1,0 +1,36 @@
+name: Retrieve 26CRC006 Fast Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/retrieve-calprocure-package-fast.mjs
+      - .github/workflows/retrieve-26crc006-fast.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Probe Cal eProcure attachment workflow
+        run: node scripts/retrieve-calprocure-package-fast.mjs
+      - name: Inventory evidence
+        if: always()
+        run: find artifacts/26CRC006-fast -type f -printf '%s %p\n' | sort -n | tee artifacts/26CRC006-fast/inventory.txt || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 26CRC006-fast-probe
+          path: artifacts/26CRC006-fast
+          if-no-files-found: error
+          retention-days: 7
