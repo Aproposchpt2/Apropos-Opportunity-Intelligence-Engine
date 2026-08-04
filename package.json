@@ -1,10 +1,16 @@
 {
   "name": "apropos-command-center",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "mammoth": "^1.10.0",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  }
 }
