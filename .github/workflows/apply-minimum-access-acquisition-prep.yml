@@ -1,0 +1,144 @@
+name: Apply minimum-access acquisition preparation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'minimum-access-acquisition-prep'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: minimum-access-acquisition-prep
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Materialize registered connector sources
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONNECTOR_BLOB: 88afe07a8c573cb30288fa3a39205d53848f3703
+          INDEX_BLOB: 2dd2990dd6ff2565af31740b2f0a35150cf76a0d
+        run: |
+          mkdir -p netlify/functions/_shared/acquisition-connectors
+          fetch_blob() {
+            local sha="$1" target="$2"
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/blobs/${sha}" \
+              | jq -r '.content' | tr -d '\n' | base64 -d > "${target}"
+          }
+          fetch_blob "$CONNECTOR_BLOB" netlify/functions/_shared/acquisition-connectors/agent-public-source-discovery.js
+          fetch_blob "$INDEX_BLOB" netlify/functions/_shared/acquisition-connectors/index.js
+
+      - name: Wire assignment context and prepared-target selector
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          for filename in ['command-verify-publisher-connection-background.js','command-single-publisher-acquisition-background.js']:
+              p=Path('netlify/functions')/filename
+              s=p.read_text()
+              s=s.replace('connector.verify({ endpoint, sampleSize:', 'connector.verify({ endpoint, publisher, assignment, sampleSize:')
+              s=s.replace('connector.acquire({endpoint,onPage:', 'connector.acquire({endpoint,publisher,assignment,onPage:')
+              p.write_text(s)
+
+          p=Path('netlify/functions/command-publisher-options.js')
+          s=p.read_text()
+          s=s.replace("      const connectorKey = String(configuration.connector_key || '').trim() || null;\n      const certificationStatus", "      const connectorKey = String(configuration.connector_key || '').trim() || null;\n      const acquisitionProfile = parseObject(configuration.acquisition_discovery_profile || configuration.acquisition_discovery);\n      const commandInstruction = String(acquisitionProfile.command_instruction || configuration.acquisition_command_instruction || '').trim() || null;\n      const minimumAccessPrepared = acquisitionProfile.enabled === true\n        && String(acquisitionProfile.access_tier || '').toUpperCase() === 'MINIMUM_ACCESS'\n        && Boolean(commandInstruction)\n        && Boolean(endpoint)\n        && configuration.authentication_required !== true\n        && configuration.login_required !== true\n        && configuration.stateful_session_required !== true\n        && configuration.javascript_required !== true\n        && configuration.browser_automation_required !== true;\n      const certificationStatus")
+          s=s.replace("        connector_key: connectorKey, connector_label: connectorKey || 'CONNECTOR PROFILE REQUIRED',\n", "        connector_key: connectorKey, connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || 'CONNECTOR PROFILE REQUIRED',\n")
+          s=s.replace("        source_verified: p.verified === true, access_status: p.access_status || 'DISCOVERED',\n", "        source_verified: p.verified === true, access_status: p.access_status || 'DISCOVERED',\n        minimum_access_prepared: minimumAccessPrepared, acquisition_instruction_configured: Boolean(commandInstruction),\n        execution_mode: certified ? 'CERTIFIED_CONNECTOR' : minimumAccessPrepared ? 'EAG_001_REQUIRED' : 'NOT_PREPARED',\n")
+          s=s.replace("        readiness_reason: !profileReady ? 'Publisher profile, endpoint, or connector is not READY.' : !certified && !includeTesting ? 'Publisher must pass EAG-001 before Acquisition Discovery.' : null\n", "        readiness_reason: !profileReady ? 'Publisher profile, endpoint, or connector is not READY.' : !certified && minimumAccessPrepared ? 'Minimum-access target is prepared; run EAG-001 once before Acquisition Discovery.' : !certified && !includeTesting ? 'Publisher must pass EAG-001 before Acquisition Discovery.' : null\n")
+          p.write_text(s)
+
+          p=Path('assets/executive-launch.js')
+          s=p.read_text()
+          old="""    const options=rows.map(p=>`<option value=\"${escAttr(p.publisher_id)}\" data-method=\"${escAttr(p.acquisition_method||'AUTO')}\" data-endpoint=\"${escAttr(p.search_endpoint||'')}\" data-platform=\"${escAttr(p.platform||'')}\" data-connector=\"${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}\"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${verification||p.selectable?'':' — NOT CERTIFIED'}</option>`).join('');
+    const note=verification?'EAG-001 performs read-only validation and writes certification evidence only.':'Only CERTIFIED or PRODUCTION publishers may execute Acquisition Discovery.';
+"""
+          new="""    const options=rows.map(p=>{
+      const prepared=p.minimum_access_prepared===true;
+      const suffix=verification||p.selectable?'':prepared?' — PREPARED: VERIFY FIRST':' — NOT CERTIFIED';
+      return `<option value=\"${escAttr(p.publisher_id)}\" data-method=\"${escAttr(p.acquisition_method||'AUTO')}\" data-endpoint=\"${escAttr(p.search_endpoint||'')}\" data-platform=\"${escAttr(p.platform||'')}\" data-connector=\"${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}\" data-execution-mode=\"${escAttr(p.execution_mode||'NOT_PREPARED')}\"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${suffix}</option>`;
+    }).join('');
+    const preparedCount=rows.filter(p=>p.minimum_access_prepared===true&&!p.selectable).length;
+    const note=verification?'EAG-001 performs one read-only, cost-capped validation against the selected official public source.':`CERTIFIED or PRODUCTION publishers can execute immediately.${preparedCount?` ${preparedCount} minimum-access targets are prepared and listed below; verify one target at a time with EAG-001 to enable it.`:''}`;
+"""
+          if old not in s:
+              raise SystemExit('Executive selector target block not found')
+          s=s.replace(old,new)
+          s=s.replace("cfg.connector_key=o.dataset.connector||null;", "cfg.connector_key=o.dataset.connector||null;cfg.execution_mode=o.dataset.executionMode||null;")
+          p.write_text(s)
+          PY
+
+      - name: Add focused regression tests
+        run: |
+          cat > tests/minimum-access-acquisition-preparation.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          import { resolveConnector, listConnectorKeys } from '../netlify/functions/_shared/acquisition-connectors/index.js';
+
+          const connectorPath = new URL('../netlify/functions/_shared/acquisition-connectors/agent-public-source-discovery.js', import.meta.url);
+          const optionsPath = new URL('../netlify/functions/command-publisher-options.js', import.meta.url);
+          const dashboardPath = new URL('../assets/executive-launch.js', import.meta.url);
+
+          test('minimum-access public-source connector is registered explicitly', () => {
+            assert.ok(listConnectorKeys().includes('AGENT_PUBLIC_SOURCE_DISCOVERY'));
+            const connector = resolveConnector({
+              publisher: { publisher_name: 'Prepared Public Source' },
+              assignment: { search_parameters: { connector_key: 'AGENT_PUBLIC_SOURCE_DISCOVERY' } }
+            });
+            assert.equal(connector.key, 'AGENT_PUBLIC_SOURCE_DISCOVERY');
+            assert.equal(typeof connector.verify, 'function');
+            assert.equal(typeof connector.acquire, 'function');
+          });
+
+          test('targeted agent connector enforces cost and access controls', async () => {
+            const source = await readFile(connectorPath, 'utf8');
+            assert.match(source, /max_tool_calls:\s*2/);
+            assert.match(source, /search_context_size:\s*'low'/);
+            assert.match(source, /Math\.min\(requested,\s*20\)/);
+            assert.match(source, /Do not log in, register, submit forms, bypass access controls/);
+            assert.match(source, /acquisition_command_instruction/);
+            assert.match(source, /official_source_verified/);
+          });
+
+          test('publisher selector exposes prepared targets but preserves EAG-001 gate', async () => {
+            const optionsSource = await readFile(optionsPath, 'utf8');
+            const dashboardSource = await readFile(dashboardPath, 'utf8');
+            assert.match(optionsSource, /minimumAccessPrepared/);
+            assert.match(optionsSource, /EAG_001_REQUIRED/);
+            assert.match(optionsSource, /run EAG-001 once before Acquisition Discovery/i);
+            assert.match(dashboardSource, /PREPARED: VERIFY FIRST/);
+            assert.match(dashboardSource, /verify one target at a time with EAG-001/i);
+          });
+          EOF
+
+      - name: Validate implementation
+        run: |
+          node --check netlify/functions/_shared/acquisition-connectors/agent-public-source-discovery.js
+          node --check netlify/functions/_shared/acquisition-connectors/index.js
+          node --check netlify/functions/command-verify-publisher-connection-background.js
+          node --check netlify/functions/command-single-publisher-acquisition-background.js
+          node --check netlify/functions/command-publisher-options.js
+          node --check assets/executive-launch.js
+          node --test tests/minimum-access-acquisition-preparation.test.mjs
+
+      - name: Commit implementation to repair branch
+        run: |
+          rm -f .github/workflows/apply-minimum-access-acquisition-prep.yml
+          git config user.name "APROPOS Engineering Automation"
+          git config user.email "jmitchell@aproposgroupllc.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No implementation changes remain."
+            exit 0
+          fi
+          git commit -m "Prepare minimum-access acquisition targets"
+          git push origin HEAD:minimum-access-acquisition-prep
