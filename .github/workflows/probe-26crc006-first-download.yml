@@ -1,0 +1,27 @@
+name: Probe 26CRC006 First Download
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/probe-26crc006-first-download.mjs
+      - .github/workflows/probe-26crc006-first-download.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - run: node scripts/probe-26crc006-first-download.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 26CRC006-first-download-probe
+          path: artifacts/26CRC006-first-download
+          if-no-files-found: error
+          retention-days: 7
