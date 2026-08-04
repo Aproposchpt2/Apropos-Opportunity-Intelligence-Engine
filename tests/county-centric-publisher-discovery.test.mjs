@@ -5,7 +5,11 @@ import {
   normalizeDiscoveryClassification,
   parseCountyDiscoveryScope
 } from '../netlify/functions/_shared/publisher-discovery-taxonomy.js';
-import { buildPublisherExpansionPlan } from '../netlify/functions/_shared/publisher-expansion-engine.js';
+import {
+  buildPublisherExpansionPlan,
+  PUBLISHER_DISCOVERY_CANDIDATE_CAP_PER_WAVE,
+  PUBLISHER_DISCOVERY_MODE
+} from '../netlify/functions/_shared/publisher-expansion-engine.js';
 
 const scope = 'COUNTY|06037|LOS ANGELES COUNTY';
 
@@ -21,8 +25,8 @@ test('publisher discovery prompt requires county nexus and platform intelligence
   const prompt = buildPublisherDiscoveryPrompt({
     stateCode: 'CA',
     discoveryScope: scope,
-    strategyKey: 'ENTITY_CLASS_04',
-    strategyLabel: 'Counties',
+    strategyKey: 'CORE_WAVE_01',
+    strategyLabel: 'Local government and direct public buyers',
     entityClasses: ['Counties, county departments and county constitutional offices']
   });
   assert.match(prompt, /LOS ANGELES COUNTY, CA/);
@@ -32,12 +36,16 @@ test('publisher discovery prompt requires county nexus and platform intelligence
   assert.match(prompt, /connector_roi_score/);
 });
 
-test('every county expansion unit stays anchored to the selected county', () => {
+test('county expansion uses six cost-controlled, county-anchored waves', () => {
   const plan = buildPublisherExpansionPlan({ stateCode: 'CA', discoveryScope: scope });
-  assert.ok(plan.length > 30);
+  assert.equal(PUBLISHER_DISCOVERY_MODE, 'CORE_SIX_WAVE_COST_CONTROL');
+  assert.equal(PUBLISHER_DISCOVERY_CANDIDATE_CAP_PER_WAVE, 12);
+  assert.equal(plan.length, 6);
   for (const unit of plan) {
     assert.match(unit.prompt, /LOS ANGELES COUNTY, CA/);
-    assert.match(unit.prompt, /do not broaden the task into unrestricted statewide discovery/i);
+    assert.match(unit.prompt, /do not broaden into unrestricted statewide discovery/i);
+    assert.match(unit.prompt, /Return no more than 12 verified candidates/i);
+    assert.ok(unit.entityClasses.length >= 3);
   }
 });
 
