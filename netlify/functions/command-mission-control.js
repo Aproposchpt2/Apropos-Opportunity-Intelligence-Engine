@@ -12,6 +12,17 @@ const MISSION_ADAPTERS = Object.freeze({
   INSTITUTIONAL_BUYER_DISCOVERY: { agent: 'Institutional Buyer Discovery', label: 'Institutional Buyer Discovery', worker: 'command-institutional-buyer-discovery-worker-background', kind: 'research' }
 });
 
+async function findActiveCountyDiscovery(stateCode, countyFips, countyName) {
+  const encodedState = encodeURIComponent(stateCode);
+  const rows = await db(`command_runs?mission_type_key=eq.PUBLISHER_DISCOVERY&state_code=eq.${encodedState}&status=in.(queued,running)&select=id,mission_name,status,current_stage,last_activity_at,execution_evidence&order=started_at.desc`).catch(() => []);
+  return (rows || []).find(row => {
+    const evidence = row.execution_evidence || {};
+    const sameFips = countyFips && txt(evidence.county_fips) === countyFips;
+    const sameName = txt(evidence.county_name).toUpperCase() === countyName.toUpperCase();
+    return sameFips || sameName;
+  }) || null;
+}
+
 export const handler = async event => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
@@ -43,6 +54,17 @@ export const handler = async event => {
       return response(400, { error: 'Unsupported discovery scope.' });
     }
 
+    if (adapter.kind === 'publisher') {
+      const active = await findActiveCountyDiscovery(stateCode, countyFips, countyName);
+      if (active) return response(409, {
+        error: `Publisher Discovery is already active for ${countyName}. Resume or review the existing run instead of launching a duplicate.`,
+        code: 'COUNTY_DISCOVERY_ALREADY_ACTIVE',
+        active_run_id: active.id,
+        active_stage: active.current_stage,
+        last_activity_at: active.last_activity_at
+      });
+    }
+
     if (requiresPublisher) {
       const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,county_name,configuration`))?.[0];
       if (!publisher) return response(404, { error: 'Selected publisher profile was not found in the selected county.' });
@@ -65,7 +87,8 @@ export const handler = async event => {
       : adapter.kind === 'publisher'
         ? {
             discovery_scope: discoveryScope, county_name: countyName, county_fips: countyFips, geographic_scope: 'COUNTY',
-            autonomous_research: true, platform_classification_required: true, mission_adapter: adapter.worker
+            autonomous_research: true, platform_classification_required: true, mission_adapter: adapter.worker,
+            execution_model: 'ONE_ENTITY_CLASS_PER_BACKGROUND_INVOCATION', checkpointed: true
           }
         : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
 
@@ -102,6 +125,9 @@ export const handler = async event => {
     return response(202, { mission, run, execution: { runtime: 'NETLIFY_NATIVE', worker: adapter.worker, dispatch_status: workerResponse.status, assigned_agent: adapter.agent, ...configuration } });
   } catch (error) {
     console.error('command-mission-control failed', error);
+    if (/duplicate key value.*command_runs_active_county_discovery_uidx/i.test(error instanceof Error ? error.message : String(error))) {
+      return response(409, { error: 'Publisher Discovery is already active for the selected county.', code: 'COUNTY_DISCOVERY_ALREADY_ACTIVE' });
+    }
     return response(500, { error: error instanceof Error ? error.message : String(error) });
   }
 };
