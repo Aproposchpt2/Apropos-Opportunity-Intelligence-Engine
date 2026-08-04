@@ -1,0 +1,29 @@
+name: Download 26CRC006 Official Package Part 2
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/download-26crc006-package-part2.mjs
+      - .github/workflows/download-26crc006-package-part2.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - run: node scripts/download-26crc006-package-part2.mjs
+      - if: always()
+        run: find artifacts/26CRC006-package-part2 -type f -printf '%s %p\n' | sort -n | tee artifacts/26CRC006-package-part2/inventory.txt || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 26CRC006-official-package-part2
+          path: artifacts/26CRC006-package-part2
+          if-no-files-found: error
+          retention-days: 7
