@@ -1,0 +1,79 @@
+insert into public.command_mission_types (
+  mission_type_key,
+  display_name,
+  methodology,
+  methodology_version,
+  default_command_definition_id,
+  registry_destination,
+  verification_standard,
+  duplicate_control_profile,
+  research_resiliency,
+  reporting_template,
+  quality_control_requirements,
+  state_context_required,
+  agent_selection_behavior,
+  enabled,
+  created_at,
+  updated_at
+) values (
+  'PUBLISHER_DISCOVERY_CLASS',
+  'Publisher Discovery — Entity Class',
+  jsonb_build_object(
+    'purpose','Execute one governed publisher entity-class research unit as a child of a county-scoped Publisher Discovery mission',
+    'execution_mode','SYSTEM_CHILD_RUN',
+    'parent_mission_type','PUBLISHER_DISCOVERY',
+    'scope_inheritance','STATE_COUNTY_AND_DISCOVERY_SCOPE',
+    'terminal_state_advances_parent',true,
+    'dashboard_launchable',false
+  ),
+  '1.0',
+  null,
+  'publisher_discovery_candidates,publisher_registry,procurement_platform_registry,procurement_connector_registry',
+  jsonb_build_object(
+    'official_source_required',true,
+    'direct_procurement_endpoint_required',true,
+    'county_nexus_required',true,
+    'platform_classification_required',true
+  ),
+  jsonb_build_object(
+    'candidate_idempotency_required',true,
+    'publisher_registry_match_required',true,
+    'merge_official_source_evidence',true
+  ),
+  jsonb_build_object(
+    'provider_retry_attempts',2,
+    'failure_isolated_to_child_run',true,
+    'next_child_runs_after_terminal_state',true
+  ),
+  'publisher_discovery_entity_class_report',
+  jsonb_build_object(
+    'parent_run_required',true,
+    'entity_class_required',true,
+    'county_scope_required',true,
+    'official_source_evidence_required',true,
+    'acquisition_launch_prohibited',true
+  ),
+  true,
+  jsonb_build_object(
+    'mode','SYSTEM_ASSIGNED',
+    'agent','Publisher Expansion',
+    'dashboard_launchable',false
+  ),
+  true,
+  now(),
+  now()
+)
+on conflict (mission_type_key) do update set
+  display_name=excluded.display_name,
+  methodology=excluded.methodology,
+  methodology_version=excluded.methodology_version,
+  registry_destination=excluded.registry_destination,
+  verification_standard=excluded.verification_standard,
+  duplicate_control_profile=excluded.duplicate_control_profile,
+  research_resiliency=excluded.research_resiliency,
+  reporting_template=excluded.reporting_template,
+  quality_control_requirements=excluded.quality_control_requirements,
+  state_context_required=excluded.state_context_required,
+  agent_selection_behavior=excluded.agent_selection_behavior,
+  enabled=true,
+  updated_at=now();
