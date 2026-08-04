@@ -6,6 +6,7 @@ const txt = value => String(value ?? '').trim();
 const MISSION_ADAPTERS = Object.freeze({
   VERIFY_PUBLISHER_CONNECTION: { agent: 'Publisher Engineering', label: 'Verify Publisher Connection', worker: 'command-verify-publisher-connection-background', kind: 'publisher_verification' },
   ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: 'command-single-publisher-acquisition-background', kind: 'acquisition' },
+  CONTRACT_PACKAGE_ACQUISITION: { agent: 'AADP Package Acquisition', label: 'Complete Contract Packages', worker: 'command-contract-package-worker-background', kind: 'package' },
   PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Discovery', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
   OPPORTUNITY_PARTNER_DISCOVERY: { agent: 'Opportunity Partner Discovery', label: 'Opportunity Partner Discovery', worker: 'command-opportunity-partner-discovery-worker-background', kind: 'research' },
@@ -37,8 +38,8 @@ export const handler = async event => {
     if (!missionType || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Task and State are required.' });
     if (!adapter) return response(409, { error: `${missionType} does not yet have a native Netlify runtime adapter.`, code: 'NETLIFY_RUNTIME_ADAPTER_REQUIRED' });
 
-    const requiresPublisher = ['acquisition', 'publisher_verification'].includes(adapter.kind);
-    const requiresCounty = ['publisher', 'acquisition', 'publisher_verification'].includes(adapter.kind);
+    const requiresPublisher = ['acquisition', 'package', 'publisher_verification'].includes(adapter.kind);
+    const requiresCounty = ['publisher', 'acquisition', 'package', 'publisher_verification'].includes(adapter.kind);
     const publisherScope = requiresPublisher ? 'SINGLE' : null;
     const publisherId = requiresPublisher && body.publisher_id ? txt(body.publisher_id) : null;
     if (requiresCounty && !countyName) return response(400, { error: 'county_name is required for county-centric publisher tasks.', code: 'COUNTY_SCOPE_REQUIRED' });
@@ -68,7 +69,7 @@ export const handler = async event => {
     if (requiresPublisher) {
       const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,county_name,configuration`))?.[0];
       if (!publisher) return response(404, { error: 'Selected publisher profile was not found in the selected county.' });
-      if (adapter.kind === 'acquisition') {
+      if (['acquisition', 'package'].includes(adapter.kind)) {
         const certification = String(publisher.configuration?.certification_status || 'DEVELOPMENT').toUpperCase();
         if (!['CERTIFIED', 'PRODUCTION'].includes(certification)) return response(409, {
           error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
@@ -82,7 +83,12 @@ export const handler = async event => {
     const configuration = requiresPublisher
       ? {
           publisher_scope: 'SINGLE', publisher_id: publisherId, county_name: countyName, county_fips: countyFips,
-          geographic_scope: 'COUNTY', execution_model: adapter.kind === 'publisher_verification' ? 'EAG_001_READ_ONLY' : 'PUBLISHER_SPECIFIC_CONNECTOR'
+          geographic_scope: 'COUNTY',
+          execution_model: adapter.kind === 'publisher_verification'
+            ? 'EAG_001_READ_ONLY'
+            : adapter.kind === 'package'
+              ? 'CHECKPOINTED_COMPLETE_CONTRACT_PACKAGE'
+              : 'PUBLISHER_SPECIFIC_CONNECTOR'
         }
       : adapter.kind === 'publisher'
         ? {
@@ -109,7 +115,7 @@ export const handler = async event => {
     const host = header(event, 'host'), dashboardPassword = header(event, 'x-dashboard-password');
     if (!host) throw new Error('Netlify host context unavailable.');
     const workerPayload = requiresPublisher
-      ? { command_run_id: run.id, state_code: stateCode, county_name: countyName, county_fips: countyFips, publisher_scope: 'SINGLE', publisher_id: publisherId, sample_size: Number(body.sample_size || 10) }
+      ? { command_run_id: run.id, state_code: stateCode, county_name: countyName, county_fips: countyFips, publisher_scope: 'SINGLE', publisher_id: publisherId, sample_size: Number(body.sample_size || 10), batch_size: Number(body.batch_size || 3) }
       : { command_run_id: run.id, mission_type_key: missionType, mission_name: missionName, state_code: stateCode, county_name: countyName || null, county_fips: countyFips, discovery_scope: discoveryScope };
 
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
