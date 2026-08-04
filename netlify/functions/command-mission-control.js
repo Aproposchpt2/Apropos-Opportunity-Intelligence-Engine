@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { response, parseBody, requireDashboardAuth, db, header } from './_shared/native-runtime.js';
 
 const now = () => new Date().toISOString();
+const txt = value => String(value ?? '').trim();
 const MISSION_ADAPTERS = Object.freeze({
   VERIFY_PUBLISHER_CONNECTION: { agent: 'Publisher Engineering', label: 'Verify Publisher Connection', worker: 'command-verify-publisher-connection-background', kind: 'publisher_verification' },
   ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: 'command-single-publisher-acquisition-background', kind: 'acquisition' },
-  PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Expansion', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
+  PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Discovery', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
   OPPORTUNITY_PARTNER_DISCOVERY: { agent: 'Opportunity Partner Discovery', label: 'Opportunity Partner Discovery', worker: 'command-opportunity-partner-discovery-worker-background', kind: 'research' },
   INSTITUTIONAL_BUYER_DISCOVERY: { agent: 'Institutional Buyer Discovery', label: 'Institutional Buyer Discovery', worker: 'command-institutional-buyer-discovery-worker-background', kind: 'research' }
@@ -17,37 +18,60 @@ export const handler = async event => {
   if (!requireDashboardAuth(event)) return response(401, { error: 'Unauthorized' });
   try {
     const body = parseBody(event);
-    const missionType = String(body.mission_type_key || '').trim().toUpperCase();
-    const stateCode = String(body.state_code || '').trim().toUpperCase();
+    const missionType = txt(body.mission_type_key).toUpperCase();
+    const stateCode = txt(body.state_code).toUpperCase();
+    const countyName = txt(body.county_name);
+    const countyFips = txt(body.county_fips) || null;
     const adapter = MISSION_ADAPTERS[missionType];
     if (!missionType || !/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Task and State are required.' });
     if (!adapter) return response(409, { error: `${missionType} does not yet have a native Netlify runtime adapter.`, code: 'NETLIFY_RUNTIME_ADAPTER_REQUIRED' });
 
     const requiresPublisher = ['acquisition', 'publisher_verification'].includes(adapter.kind);
+    const requiresCounty = ['publisher', 'acquisition', 'publisher_verification'].includes(adapter.kind);
     const publisherScope = requiresPublisher ? 'SINGLE' : null;
-    const publisherId = requiresPublisher && body.publisher_id ? String(body.publisher_id).trim() : null;
-    const discoveryScope = requiresPublisher ? null : String(body.discovery_scope || 'STATEWIDE').trim().toUpperCase();
+    const publisherId = requiresPublisher && body.publisher_id ? txt(body.publisher_id) : null;
+    if (requiresCounty && !countyName) return response(400, { error: 'county_name is required for county-centric publisher tasks.', code: 'COUNTY_SCOPE_REQUIRED' });
     if (requiresPublisher && !publisherId) return response(400, { error: 'publisher_id is required. This task executes one publisher at a time.', code: 'SINGLE_PUBLISHER_REQUIRED' });
-    if (!requiresPublisher && !['STATEWIDE', 'STATEWIDE_ALL', 'STATE_AND_LOCAL', 'REFRESH'].includes(discoveryScope)) return response(400, { error: 'Unsupported discovery scope.' });
 
-    if (adapter.kind === 'acquisition') {
-      const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&select=id,publisher_name,configuration`))?.[0];
-      if (!publisher) return response(404, { error: 'Selected publisher profile was not found.' });
-      const certification = String(publisher.configuration?.certification_status || 'DEVELOPMENT').toUpperCase();
-      if (!['CERTIFIED', 'PRODUCTION'].includes(certification)) return response(409, {
-        error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
-        code: 'PUBLISHER_CERTIFICATION_REQUIRED', certification_status: certification
-      });
+    const countyScope = requiresCounty ? `COUNTY|${countyFips || ''}|${countyName.toUpperCase()}` : null;
+    const discoveryScope = adapter.kind === 'publisher'
+      ? countyScope
+      : requiresPublisher
+        ? null
+        : txt(body.discovery_scope || 'STATEWIDE').toUpperCase();
+    if (adapter.kind === 'research' && !['STATEWIDE', 'STATEWIDE_ALL', 'STATE_AND_LOCAL', 'REFRESH'].includes(discoveryScope)) {
+      return response(400, { error: 'Unsupported discovery scope.' });
     }
 
-    const missionName = String(body.mission_name || `${stateCode} — ${adapter.label}`).trim();
+    if (requiresPublisher) {
+      const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,county_name,configuration`))?.[0];
+      if (!publisher) return response(404, { error: 'Selected publisher profile was not found in the selected county.' });
+      if (adapter.kind === 'acquisition') {
+        const certification = String(publisher.configuration?.certification_status || 'DEVELOPMENT').toUpperCase();
+        if (!['CERTIFIED', 'PRODUCTION'].includes(certification)) return response(409, {
+          error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
+          code: 'PUBLISHER_CERTIFICATION_REQUIRED', certification_status: certification
+        });
+      }
+    }
+
+    const missionName = txt(body.mission_name || `${stateCode} — ${countyName || 'Statewide'} — ${adapter.label}`);
     const createdAt = now();
     const configuration = requiresPublisher
-      ? { publisher_scope: 'SINGLE', publisher_id: publisherId, execution_model: adapter.kind === 'publisher_verification' ? 'EAG_001_READ_ONLY' : 'PUBLISHER_SPECIFIC_CONNECTOR' }
-      : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
+      ? {
+          publisher_scope: 'SINGLE', publisher_id: publisherId, county_name: countyName, county_fips: countyFips,
+          geographic_scope: 'COUNTY', execution_model: adapter.kind === 'publisher_verification' ? 'EAG_001_READ_ONLY' : 'PUBLISHER_SPECIFIC_CONNECTOR'
+        }
+      : adapter.kind === 'publisher'
+        ? {
+            discovery_scope: discoveryScope, county_name: countyName, county_fips: countyFips, geographic_scope: 'COUNTY',
+            autonomous_research: true, platform_classification_required: true, mission_adapter: adapter.worker
+          }
+        : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
 
+    const scopeKey = publisherScope || discoveryScope || countyScope || 'DEFAULT';
     const runRows = await db('command_runs', { method: 'POST', body: JSON.stringify({
-      idempotency_key: `ecc:${missionType}:${stateCode}:${publisherScope || discoveryScope || 'DEFAULT'}:${publisherId || 'ALL'}:${randomUUID()}`,
+      idempotency_key: `ecc:${missionType}:${stateCode}:${scopeKey}:${publisherId || 'ALL'}:${randomUUID()}`,
       status: 'queued', current_stage: 'NETLIFY_EXECUTION_QUEUED', aadp_state: 'QUEUED', mission_type_key: missionType, mission_name: missionName, state_code: stateCode,
       assigned_agent: adapter.agent, started_at: createdAt, last_activity_at: createdAt, progress_mode: 'STAGE', progress_value: 5,
       execution_evidence: { source: 'EXECUTIVE_COMMAND_CENTER', runtime: 'NETLIFY_NATIVE', operator_authorized: true, ...configuration, assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION' }
@@ -62,8 +86,8 @@ export const handler = async event => {
     const host = header(event, 'host'), dashboardPassword = header(event, 'x-dashboard-password');
     if (!host) throw new Error('Netlify host context unavailable.');
     const workerPayload = requiresPublisher
-      ? { command_run_id: run.id, state_code: stateCode, publisher_scope: 'SINGLE', publisher_id: publisherId, sample_size: Number(body.sample_size || 10) }
-      : { command_run_id: run.id, mission_type_key: missionType, mission_name: missionName, state_code: stateCode, discovery_scope: discoveryScope };
+      ? { command_run_id: run.id, state_code: stateCode, county_name: countyName, county_fips: countyFips, publisher_scope: 'SINGLE', publisher_id: publisherId, sample_size: Number(body.sample_size || 10) }
+      : { command_run_id: run.id, mission_type_key: missionType, mission_name: missionName, state_code: stateCode, county_name: countyName || null, county_fips: countyFips, discovery_scope: discoveryScope };
 
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
     let workerResponse;
