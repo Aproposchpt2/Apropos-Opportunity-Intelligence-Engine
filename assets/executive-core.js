@@ -9,6 +9,7 @@ const NETLIFY_FUNCTIONS={
   'command-automated-task':'command-automated-task',
   'command-executive-status':'command-executive-status',
   'command-publisher-discovery-status':'command-publisher-discovery-status',
+  'command-county-options':'command-county-options',
   'command-publisher-options':'command-publisher-options',
   'command-mission-status':'mission-status',
   'command-aadp-publisher-candidate-review':'candidate-review',
