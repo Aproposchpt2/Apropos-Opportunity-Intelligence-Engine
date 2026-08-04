@@ -13,9 +13,11 @@ export const handler = async event => {
   try {
     const body = parseBody(event);
     const stateCode = String(body.state_code || '').trim().toUpperCase();
+    const countyName = String(body.county_name || '').trim();
     const includeTesting = body.include_testing === true;
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
-    const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&verified=eq.true&select=id,publisher_name,state_code,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,last_verified_at,configuration&order=publisher_name.asc`);
+    if (!countyName) return response(400, { error: 'county_name is required.' });
+    const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}&verified=eq.true&select=id,publisher_name,state_code,county_name,county_fips,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,access_class,machine_to_machine_supported,connector_strategy,engineering_complexity,reuse_score,connector_roi_score,last_verified_at,configuration&order=publisher_name.asc`);
     const publishers = (rows || []).filter(p => String(p.publisher_name || '').trim()).map(p => {
       const configuration = parseObject(p.configuration);
       const endpoint = p.search_endpoint || p.procurement_website || p.official_website || null;
@@ -25,9 +27,14 @@ export const handler = async event => {
       const certified = ['CERTIFIED', 'PRODUCTION'].includes(certificationStatus);
       const selectable = includeTesting ? profileReady : profileReady && certified;
       return {
-        publisher_id: p.id, publisher_name: p.publisher_name, organization_type: p.organization_type,
-        official_website: p.official_website, procurement_website: p.procurement_website,
+        publisher_id: p.id, publisher_name: p.publisher_name, county_name: p.county_name, county_fips: p.county_fips,
+        organization_type: p.organization_type, official_website: p.official_website, procurement_website: p.procurement_website,
         acquisition_method: p.acquisition_method || 'AUTO_RESOLVE', search_endpoint: endpoint,
+        platform: configuration.procurement_platform || null, access_class: p.access_class || configuration.access_class || configuration.platform_access_class || 'UNKNOWN',
+        machine_to_machine_supported: p.machine_to_machine_supported ?? configuration.machine_to_machine_supported ?? null,
+        connector_strategy: p.connector_strategy || configuration.connector_strategy || configuration.recommended_connector_strategy || null,
+        engineering_complexity: p.engineering_complexity || configuration.engineering_complexity || 'UNKNOWN',
+        reuse_score: p.reuse_score == null ? null : Number(p.reuse_score), connector_roi_score: p.connector_roi_score == null ? null : Number(p.connector_roi_score),
         connector_key: connectorKey, connector_label: connectorKey || 'CONNECTOR PROFILE REQUIRED',
         connector_version: configuration.connector_version || null, certification_status: certificationStatus,
         source_verified: p.verified === true, access_status: p.access_status || 'DISCOVERED',
@@ -35,7 +42,7 @@ export const handler = async event => {
         readiness_reason: !profileReady ? 'Publisher profile, endpoint, or connector is not READY.' : !certified && !includeTesting ? 'Publisher must pass EAG-001 before Acquisition Discovery.' : null
       };
     });
-    return response(200, { state_code: stateCode, execution_scope: 'SINGLE_PUBLISHER_REQUIRED', include_testing: includeTesting, publishers });
+    return response(200, { state_code: stateCode, county_name: countyName, execution_scope: 'SINGLE_COUNTY_SINGLE_PUBLISHER_REQUIRED', include_testing: includeTesting, publishers });
   } catch (error) {
     console.error('command-publisher-options failed', error);
     return response(500, { error: error instanceof Error ? error.message : String(error) });
