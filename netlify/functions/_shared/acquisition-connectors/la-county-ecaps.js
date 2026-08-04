@@ -79,12 +79,19 @@ async function fetchPage(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const startedAt = Date.now();
     const response = await fetch(url, {
-      headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'APROPOS-APIE-LA-County-Connector/1.1', 'Cache-Control': 'no-cache' },
+      headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'APROPOS-APIE-LA-County-Connector/1.2', 'Cache-Control': 'no-cache' },
       redirect: 'follow', signal: controller.signal
     });
     if (!response.ok) throw new Error(`LA County page request failed with HTTP ${response.status}`);
-    return { html: await response.text(), finalUrl: response.url || url };
+    return {
+      html: await response.text(),
+      finalUrl: response.url || url,
+      status: response.status,
+      contentType: response.headers.get('content-type') || null,
+      responseMs: Date.now() - startedAt
+    };
   } finally { clearTimeout(timer); }
 }
 
@@ -98,10 +105,103 @@ function pageUrl(page, pageSize) {
   return url.toString();
 }
 
+async function verifyDetail(record, timeoutMs) {
+  const result = await fetchPage(record.detail_page_url, timeoutMs);
+  const body = decodeHtml(result.html);
+  const solicitationNumber = txt(record.solicitation_number);
+  const numberPresent = Boolean(solicitationNumber) && (
+    body.toLowerCase().includes(solicitationNumber.toLowerCase())
+    || result.finalUrl.toLowerCase().includes(encodeURIComponent(solicitationNumber).toLowerCase())
+  );
+  const detailSpecific = /\/BidLookUp\/BidDetail/i.test(result.finalUrl) || numberPresent;
+  const requirementsFound = /description|scope of work|statement of work|specification|requirements?|commodity|service|deliverables?/i.test(body);
+  const contactFound = /contact|buyer|procurement|department|email|phone/i.test(body);
+  const attachmentsFound = /attachment|download|addendum|bid package|\.pdf|\.docx?|\.xlsx?/i.test(result.html);
+  return {
+    solicitation_number: solicitationNumber,
+    title: record.title,
+    detail_url: record.detail_page_url,
+    final_url: result.finalUrl,
+    http_status: result.status,
+    response_ms: result.responseMs,
+    solicitation_number_present: numberPresent,
+    detail_specific: detailSpecific,
+    requirements_found: requirementsFound,
+    contact_found: contactFound,
+    attachments_found: attachmentsFound,
+    detail_passed: Boolean(result.status === 200 && detailSpecific && numberPresent)
+  };
+}
+
 export const connector = Object.freeze({
   key: 'LA_COUNTY_ECAPS',
+  version: '1.2.0',
   publisherNames: ['County of Los Angeles', 'Los Angeles County'],
   hostnames: ['camisvr.co.la.ca.us'],
+
+  async verify({ endpoint, sampleSize = 10, timeoutMs = 30000, onSample }) {
+    const startedAt = Date.now();
+    const startUrl = endpoint && /camisvr\.co\.la\.ca\.us/i.test(endpoint) ? endpoint : BASE_URL;
+    const listing = await fetchPage(startUrl, timeoutMs);
+    const totalReported = parseTotal(listing.html);
+    const pageSize = 10;
+    const totalPages = parsePageCount(listing.html, totalReported, pageSize);
+    const records = parseRows(listing.html, listing.finalUrl);
+    if (!records.length) throw new Error('LA County eCAPS returned no structured open solicitation rows.');
+
+    const sample = records.slice(0, Math.max(1, Math.min(Number(sampleSize) || 10, 20)));
+    const checks = [];
+    for (let index = 0; index < sample.length; index++) {
+      try {
+        checks.push(await verifyDetail(sample[index], timeoutMs));
+      } catch (error) {
+        checks.push({
+          solicitation_number: sample[index].solicitation_number,
+          title: sample[index].title,
+          detail_url: sample[index].detail_page_url,
+          detail_passed: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      await onSample?.({
+        processed: index + 1,
+        total: sample.length,
+        passed: checks.filter(item => item.detail_passed).length
+      });
+    }
+
+    const detailPagesSuccessful = checks.filter(item => item.detail_passed).length;
+    const failures = checks.length - detailPagesSuccessful;
+    const paginationStatus = Number.isFinite(totalPages) && totalPages >= 1 ? 'PASS' : 'WARNING';
+    const readyForAcquisition = failures === 0 && records.length > 0 && paginationStatus === 'PASS';
+
+    return {
+      gate: 'EAG-001',
+      connector_key: this.key,
+      connector_version: this.version,
+      verified_at: new Date().toISOString(),
+      connection: 'PASS',
+      source_url: listing.finalUrl,
+      publisher_reported_total: totalReported,
+      records_parsed: records.length,
+      structured_records: true,
+      search_response_ms: listing.responseMs,
+      sample_size: sample.length,
+      detail_pages_successful: detailPagesSuccessful,
+      requirements_successful: checks.filter(item => item.requirements_found).length,
+      contacts_successful: checks.filter(item => item.contact_found).length,
+      attachments_detected: checks.filter(item => item.attachments_found).length,
+      failures,
+      pagination_status: paginationStatus,
+      total_pages_reported: totalPages,
+      requirements_status: checks.every(item => item.requirements_found) ? 'PASS' : 'SECONDARY_DOCUMENT_EXTRACTION_REQUIRED',
+      certification_status: readyForAcquisition ? 'CERTIFIED' : 'TESTING',
+      ready_for_acquisition: readyForAcquisition,
+      elapsed_ms: Date.now() - startedAt,
+      sample_results: checks
+    };
+  },
+
   async acquire({ endpoint, onPage, maxPages = 100, pageSize = 10, timeoutMs = 30000 }) {
     const startUrl = endpoint && /camisvr\.co\.la\.ca\.us/i.test(endpoint) ? endpoint : BASE_URL;
     const first = await fetchPage(startUrl, timeoutMs);
@@ -116,7 +216,18 @@ export const connector = Object.freeze({
       const records = parseRows(result.html, result.finalUrl); acceptRecords(records);
       await onPage?.({ page, totalPages, totalReported, records: records.length });
     }
-    return { connector_key: 'LA_COUNTY_ECAPS', connector_version: '1.1', source_url: first.finalUrl, total_reported: totalReported, pages_processed: totalPages, records: allRecords,
-      reconciliation: { unique_records: allRecords.length, total_reported: totalReported, count_matches: totalReported == null ? null : allRecords.length === totalReported } };
+    return {
+      connector_key: this.key,
+      connector_version: this.version,
+      source_url: first.finalUrl,
+      total_reported: totalReported,
+      pages_processed: totalPages,
+      records: allRecords,
+      reconciliation: {
+        unique_records: allRecords.length,
+        total_reported: totalReported,
+        count_matches: totalReported == null ? null : allRecords.length === totalReported
+      }
+    };
   }
 });
