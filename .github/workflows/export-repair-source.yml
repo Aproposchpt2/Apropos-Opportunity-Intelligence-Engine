@@ -1,0 +1,27 @@
+name: Export repair source
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Netlify MCP client
+        run: npm install --prefix .repair-tools @netlify/mcp@1.15.1
+      - name: Package source and deployment client
+        run: |
+          mkdir -p .repair-export/source .repair-export/tools
+          rsync -a --exclude='.git' --exclude='.repair-export' --exclude='.repair-tools' ./ .repair-export/source/
+          cp -a .repair-tools/. .repair-export/tools/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apie-checkpoint-repair-source
+          path: .repair-export
+          retention-days: 1
+          if-no-files-found: error
