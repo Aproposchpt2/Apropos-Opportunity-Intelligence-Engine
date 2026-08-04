@@ -32,6 +32,13 @@ function parseJson(text) {
   }
 }
 
+function fatalProviderFailure(status, message) {
+  const normalized = txt(message).toLowerCase();
+  return status === 401
+    || status === 403
+    || (status === 429 && /no credits remaining|insufficient_quota|billing|credit balance|quota exceeded/.test(normalized));
+}
+
 async function patchRun(id, values) {
   await db(`command_runs?id=eq.${id}`, {
     method: 'PATCH',
@@ -56,7 +63,7 @@ async function createChildRun({ parentRunId, stateCode, unit, discoveryScope }) 
         current_stage: 'ENTITY_CLASS_RESEARCH',
         started_at: now(),
         last_activity_at: now(),
-        progress_mode: 'DETERMINATE',
+        progress_mode: 'STAGE',
         progress_value: 5,
         result_summary: `Searching ${unit.entityClass} in ${stateCode}.`,
         execution_evidence: {
@@ -101,7 +108,14 @@ async function researchUnit({ apiKey, model, unit }) {
       });
       const providerData = await providerResponse.json().catch(() => ({}));
       if (!providerResponse.ok) {
-        throw new Error(`${unit.key} failed (${providerResponse.status}): ${providerData?.error?.message || 'unknown provider error'}`);
+        const providerMessage = providerData?.error?.message || 'unknown provider error';
+        const providerError = new Error(`${unit.key} failed (${providerResponse.status}): ${providerMessage}`);
+        Object.assign(providerError, {
+          attempts: attempt,
+          providerStatus: providerResponse.status,
+          fatalProvider: fatalProviderFailure(providerResponse.status, providerMessage)
+        });
+        throw providerError;
       }
       const candidates = arr(parseJson(outputText(providerData))?.candidates)
         .filter(candidate => txt(candidate?.publisher_name))
@@ -113,6 +127,7 @@ async function researchUnit({ apiKey, model, unit }) {
       return { candidates, attempts: attempt };
     } catch (error) {
       lastError = error;
+      if (error?.fatalProvider === true) throw error;
       if (attempt < 2) await sleep(1500);
     }
   }
@@ -331,6 +346,7 @@ export const handler = async event => {
         idempotent_candidate_staging: true,
         separate_acquisition_task: true,
         provider_retry_attempts: 2,
+        provider_fatal_error_policy: 'STOP_AFTER_FIRST_AUTH_OR_BILLING_FAILURE',
         nationwide_state_support: true
       },
       status: 'RUNNING',
@@ -406,11 +422,12 @@ export const handler = async event => {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const fatalProvider = error?.fatalProvider === true;
         const result = {
           strategyKey: unit.key,
           sequence: unit.sequence,
           entityClass: unit.entityClass,
-          status: 'PROVIDER_FAILED',
+          status: fatalProvider ? 'PROVIDER_BLOCKED' : 'PROVIDER_FAILED',
           candidatesFound: 0,
           candidatesVerified: 0,
           assignmentsReady: 0,
@@ -421,14 +438,21 @@ export const handler = async event => {
         unitResults.push(result);
         if (childRunId) {
           await patchRun(childRunId, {
-            status: 'failed', aadp_state: 'FAILED', current_stage: 'PROVIDER_FAILED',
+            status: 'failed', aadp_state: 'FAILED', current_stage: fatalProvider ? 'PROVIDER_BLOCKED' : 'PROVIDER_FAILED',
             progress_value: 100, completed_at: now(), failure_count: 1, action_required: true,
-            result_summary: `${unit.entityClass} search failed after controlled retries. The next entity-class task was triggered.`,
+            result_summary: fatalProvider
+              ? `${unit.entityClass} stopped because provider authentication, quota, or billing is unavailable. No further entity-class tasks were launched.`
+              : `${unit.entityClass} search failed after controlled retries. The next entity-class task was triggered.`,
             execution_evidence: result
           }).catch(() => null);
         }
+        if (fatalProvider) {
+          const fatalError = new Error(`Publisher Discovery stopped after ${unit.key}: ${message}`);
+          Object.assign(fatalError, { fatalProvider: true, providerStatus: error?.providerStatus, attempts: error?.attempts });
+          throw fatalError;
+        }
       }
-      // Any terminal state above intentionally advances to the next unit.
+      // Non-fatal terminal states intentionally advance to the next unit.
     }
 
     const candidates = mergePublisherCandidates(batches);
@@ -500,18 +524,25 @@ export const handler = async event => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const fatalProvider = error?.fatalProvider === true;
     console.error('command-publisher-expansion-worker-background failed', error);
     if (discoveryRunId) {
       await db(`publisher_discovery_runs?id=eq.${discoveryRunId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', completed_at: now(), updated_at: now(), evidence: { error: message, unit_results: unitResults } })
+        body: JSON.stringify({
+          status: 'FAILED',
+          current_stage: fatalProvider ? 'PROVIDER_BLOCKED' : 'ORCHESTRATION_FAILED',
+          completed_at: now(),
+          updated_at: now(),
+          evidence: { error: message, fatal_provider: fatalProvider, unit_results: unitResults }
+        })
       }).catch(() => null);
     }
     await patchRun(commandRunId, {
-      status: 'failed', aadp_state: 'FAILED', current_stage: 'ORCHESTRATION_FAILED', progress_value: 100,
+      status: 'failed', aadp_state: 'FAILED', current_stage: fatalProvider ? 'PROVIDER_BLOCKED' : 'ORCHESTRATION_FAILED', progress_value: 100,
       failure_count: 1, action_required: true, completed_at: now(), result_summary: message,
-      execution_evidence: { unit_results: unitResults }
+      execution_evidence: { fatal_provider: fatalProvider, provider_status: error?.providerStatus || null, unit_results: unitResults }
     }).catch(() => null);
-    return response(500, { error: message, unit_results: unitResults });
+    return response(fatalProvider ? 503 : 500, { error: message, fatal_provider: fatalProvider, unit_results: unitResults });
   }
 };
