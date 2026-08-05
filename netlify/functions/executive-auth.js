@@ -95,7 +95,9 @@ async function sendRecoveryEmail(email, link) {
   if (!key) throw new Error('Executive recovery email configuration incomplete');
 
   const from = String(
-    env('EXECUTIVE_RECOVERY_FROM_EMAIL') || 'APROPOS GROUP LLC <no-reply@aproposgroupllc.com>'
+    env('EXECUTIVE_RECOVERY_FROM_EMAIL') ||
+    env('RESEND_FROM_EMAIL') ||
+    'APROPOS GROUP LLC <no-reply@aproposgroupllc.com>'
   ).trim();
 
   const res = await fetch('https://api.resend.com/emails', {
@@ -148,7 +150,12 @@ async function sendRecoveryEmail(email, link) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error('[executive-auth] recovery email rejected', res.status, data?.name || 'unknown');
+    console.error(
+      '[executive-auth] recovery email rejected',
+      res.status,
+      data?.name || 'unknown',
+      data?.message || 'no-message'
+    );
     throw new Error('Executive recovery email delivery failed');
   }
 }
@@ -249,10 +256,14 @@ export default async req => {
     return json(400, { ok: false, error: 'Unknown authentication action.' });
   } catch (error) {
     console.error('[executive-auth]', error);
-    const configurationError = /configuration incomplete|destination configuration invalid/i.test(String(error?.message || ''));
-    return json(configurationError ? 503 : 500, {
+    const message = String(error?.message || '');
+    const configurationError = /configuration incomplete|destination configuration invalid/i.test(message);
+    const deliveryError = message === 'Executive recovery email delivery failed';
+    const status = configurationError ? 503 : deliveryError ? 502 : 500;
+
+    return json(status, {
       ok: false,
-      error: configurationError ? error.message : 'Authentication service failed.'
+      error: configurationError || deliveryError ? message : 'Authentication service failed.'
     });
   }
 };
