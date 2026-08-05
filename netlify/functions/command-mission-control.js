@@ -13,6 +13,14 @@ const MISSION_ADAPTERS = Object.freeze({
   INSTITUTIONAL_BUYER_DISCOVERY: { agent: 'Institutional Buyer Discovery', label: 'Institutional Buyer Discovery', worker: 'command-institutional-buyer-discovery-worker-background', kind: 'research' }
 });
 
+const isApprovedPublisher = configuration => {
+  const cfg = configuration && typeof configuration === 'object' ? configuration : {};
+  return cfg.publisher_profile_approved === true
+    && cfg.profile_complete === true
+    && cfg.approved_for_operator_menu === true
+    && txt(cfg.approval_status).toUpperCase() === 'APPROVED';
+};
+
 async function findActiveCountyDiscovery(stateCode, countyFips, countyName) {
   const encodedState = encodeURIComponent(stateCode);
   const rows = await db(`command_runs?mission_type_key=eq.PUBLISHER_DISCOVERY&state_code=eq.${encodedState}&status=in.(queued,running)&select=id,mission_name,status,current_stage,last_activity_at,execution_evidence&order=started_at.desc`).catch(() => []);
@@ -69,8 +77,17 @@ export const handler = async event => {
     if (requiresPublisher) {
       const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,county_name,configuration`))?.[0];
       if (!publisher) return response(404, { error: 'Selected publisher profile was not found in the selected county.' });
+
+      const publisherConfiguration = publisher.configuration && typeof publisher.configuration === 'object'
+        ? publisher.configuration
+        : {};
+      if (!isApprovedPublisher(publisherConfiguration)) return response(403, {
+        error: `${publisher.publisher_name} is not approved for operator access. Complete the APROPOS Publisher Profile and approval review first.`,
+        code: 'PUBLISHER_APPROVAL_REQUIRED'
+      });
+
       if (['acquisition', 'package'].includes(adapter.kind)) {
-        const certification = String(publisher.configuration?.certification_status || 'DEVELOPMENT').toUpperCase();
+        const certification = String(publisherConfiguration.certification_status || 'DEVELOPMENT').toUpperCase();
         if (!['CERTIFIED', 'PRODUCTION'].includes(certification)) return response(409, {
           error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
           code: 'PUBLISHER_CERTIFICATION_REQUIRED', certification_status: certification
@@ -84,6 +101,7 @@ export const handler = async event => {
       ? {
           publisher_scope: 'SINGLE', publisher_id: publisherId, county_name: countyName, county_fips: countyFips,
           geographic_scope: 'COUNTY',
+          publisher_approval_required: true,
           execution_model: adapter.kind === 'publisher_verification'
             ? 'EAG_001_READ_ONLY'
             : adapter.kind === 'package'
