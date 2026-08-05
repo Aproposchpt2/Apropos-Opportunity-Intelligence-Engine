@@ -15,21 +15,28 @@ jobs:
           test -f index.html
           test -f missions/index.html
           test -f assets/runtime-config.js
+          test -f assets/executive-command-center-acad.css
+          test -f assets/executive-auth.css
           test -f assets/executive-core.js
           test -f assets/executive-command-center.js
           test -f assets/executive-launch.js
           test -f assets/mission-workspace.js
+          test -f netlify/functions/executive-auth.js
           grep -q "Executive Command Center" index.html
-          grep -q "State Operations Context" index.html
-          grep -q "Active Mission Monitors" index.html
-          grep -q "OTF OPERATIONS" index.html
-          grep -q "Operational Notifications" index.html
-      - name: Validate browser JavaScript
+          grep -q "Launch Task Force" index.html
+          grep -q "PROCUREMENT INVENTORY" index.html
+          grep -q "ACTIVITY MONITOR" index.html
+          grep -q "Forgot password?" assets/executive-core.js
+          grep -q "apieExecutiveSession" assets/executive-core.js
+          grep -q "ecc-auth-shell" assets/executive-auth.css
+      - name: Validate browser and authentication JavaScript
         run: |
           node --check assets/executive-core.js
           node --check assets/executive-command-center.js
           node --check assets/executive-launch.js
           node --check assets/mission-workspace.js
+          node --check netlify/functions/executive-auth.js
+          node --check netlify/functions/_shared/native-runtime.js
       - name: Run acceptance tests
         run: |
           set -o pipefail
@@ -60,4 +67,4 @@ jobs:
           done
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/executive-auth.css
