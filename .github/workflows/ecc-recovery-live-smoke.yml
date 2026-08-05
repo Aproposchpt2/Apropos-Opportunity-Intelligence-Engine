@@ -1,0 +1,21 @@
+name: ECC Recovery Live Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify recovery bridge route
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --location --max-time 30 \
+            -H 'Accept: text/html' \
+            'https://apie.aproposgroupllc.com/executive-recovery')"
+          grep -q 'Executive Password Recovery' <<<"$response"
+          grep -q 'CONTINUE PASSWORD RESET' <<<"$response"
+          grep -q 'Authorized operator access only' <<<"$response"
