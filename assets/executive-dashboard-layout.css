@@ -1,20 +1,28 @@
+.ecc-shell{
+  width:min(1580px,95vw);
+  max-width:1580px;
+}
+
 .ecc-main{
   display:grid;
   grid-template-columns:minmax(0,2fr) minmax(0,3fr);
-  gap:1.25rem;
-  align-items:start;
+  gap:1.5rem;
+  align-items:stretch;
 }
 
 .ecc-command-primary{
-  position:sticky;
-  top:1rem;
+  position:relative;
+  top:auto;
   min-width:0;
+  height:max-content;
 }
 
 .ecc-right-column{
   display:grid;
+  grid-template-rows:auto minmax(360px,1fr);
   gap:1.25rem;
   min-width:0;
+  height:100%;
 }
 
 .ecc-launch{
@@ -51,23 +59,34 @@
 }
 
 .ecc-inventory-table-wrap{
-  overflow-x:auto;
+  overflow:hidden;
   border:1px solid var(--line);
   border-radius:6px;
 }
 
 .ecc-inventory-table{
   width:100%;
+  min-width:0;
+  table-layout:fixed;
   border-collapse:collapse;
-  min-width:520px;
 }
+
+.ecc-inventory-table th:nth-child(1),
+.ecc-inventory-table td:nth-child(1){width:24%}
+.ecc-inventory-table th:nth-child(2),
+.ecc-inventory-table td:nth-child(2){width:20%}
+.ecc-inventory-table th:nth-child(3),
+.ecc-inventory-table td:nth-child(3){width:38%}
+.ecc-inventory-table th:nth-child(4),
+.ecc-inventory-table td:nth-child(4){width:18%}
 
 .ecc-inventory-table th,
 .ecc-inventory-table td{
-  padding:.85rem 1rem;
+  padding:1rem 1.1rem;
   border-bottom:1px solid var(--line);
   text-align:left;
   vertical-align:middle;
+  overflow-wrap:anywhere;
 }
 
 .ecc-inventory-table thead th{
@@ -85,21 +104,21 @@
 
 .ecc-inventory-table tbody th{
   color:var(--text);
-  font-size:.86rem;
+  font-size:.9rem;
   font-weight:600;
 }
 
 .ecc-inventory-count{
   color:var(--light);
   font-family:"Bodoni Moda",serif;
-  font-size:1.65rem;
+  font-size:1.8rem;
   font-weight:600;
   line-height:1;
 }
 
 .ecc-inventory-source{
   color:var(--muted);
-  font-size:.72rem;
+  font-size:.74rem;
 }
 
 .ecc-inventory-status{
@@ -115,6 +134,7 @@
 
 .ecc-inventory-status::before{
   content:"";
+  flex:0 0 auto;
   width:.48rem;
   height:.48rem;
   border-radius:50%;
@@ -129,9 +149,39 @@
   color:#df6c6c;
 }
 
+.ecc-monitor-panel{
+  min-height:360px;
+  height:100%;
+}
+
+.ecc-task-force-monitor{
+  min-height:245px;
+  align-content:start;
+}
+
+@media(max-width:1180px){
+  .ecc-shell{
+    width:96vw;
+  }
+
+  .ecc-main{
+    gap:1rem;
+  }
+
+  .ecc-inventory-table th,
+  .ecc-inventory-table td{
+    padding:.8rem .7rem;
+  }
+}
+
 @media(max-width:900px){
+  .ecc-shell{
+    width:min(94vw,760px);
+  }
+
   .ecc-main{
     grid-template-columns:1fr;
+    align-items:start;
   }
 
   .ecc-command-primary{
@@ -140,6 +190,12 @@
 
   .ecc-right-column{
     grid-column:1;
+    grid-template-rows:auto auto;
+    height:auto;
+  }
+
+  .ecc-monitor-panel{
+    min-height:300px;
   }
 }
 
@@ -154,7 +210,11 @@
     white-space:normal;
   }
 
+  .ecc-inventory-table-wrap{
+    overflow-x:auto;
+  }
+
   .ecc-inventory-table{
-    min-width:440px;
+    min-width:520px;
   }
 }
