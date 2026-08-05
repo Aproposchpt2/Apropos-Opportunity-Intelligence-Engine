@@ -12,9 +12,7 @@ jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for corrected deploy preview
-        run: sleep 30
-      - name: Request corrected Executive recovery email
+      - name: Request diagnostic Executive recovery email
         run: |
           set -euo pipefail
           status="$(curl --silent --show-error --max-time 30 \
@@ -26,6 +24,11 @@ jobs:
             --data '{"action":"reset","email":"jmitchell@aproposgroupllc.com"}')"
           cat response.json
           printf '\nHTTP %s\n' "$status"
-          test "$status" = '200'
-          grep -q '"ok":true' response.json
-          grep -q 'APROPOS recovery email has been sent' response.json
+          if [ "$status" = '200' ]; then
+            grep -q '"ok":true' response.json
+            grep -q 'APROPOS recovery email has been sent' response.json
+          else
+            grep -q 'provider_status' response.json
+            grep -q 'provider_code' response.json
+            exit 1
+          fi
