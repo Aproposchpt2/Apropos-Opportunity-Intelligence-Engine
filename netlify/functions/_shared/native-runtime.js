@@ -45,7 +45,7 @@ export function parseBody(event) {
 }
 
 function sessionSecret() {
-  return String(env('EXECUTIVE_SESSION_SECRET') || '').trim();
+  return String(env('EXECUTIVE_SESSION_SECRET') || env('EXECUTIVE_AUTH_HASH') || '').trim();
 }
 
 function operatorEmail() {
