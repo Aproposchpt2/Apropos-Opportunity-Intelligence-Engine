@@ -12,14 +12,20 @@ jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - name: Request production Executive recovery email
+      - name: Wait for corrected deploy preview
+        run: sleep 30
+      - name: Request corrected Executive recovery email
         run: |
           set -euo pipefail
-          response="$(curl --fail-with-body --silent --show-error --max-time 30 \
-            'https://apie.aproposgroupllc.com/.netlify/functions/executive-auth' \
-            -H 'Origin: https://apie.aproposgroupllc.com' \
+          status="$(curl --silent --show-error --max-time 30 \
+            --output response.json \
+            --write-out '%{http_code}' \
+            'https://deploy-preview-28--apropos-procurement-engine.netlify.app/.netlify/functions/executive-auth' \
+            -H 'Origin: https://deploy-preview-28--apropos-procurement-engine.netlify.app' \
             -H 'Content-Type: application/json' \
             --data '{"action":"reset","email":"jmitchell@aproposgroupllc.com"}')"
-          printf '%s\n' "$response"
-          grep -q '"ok":true' <<<"$response"
-          grep -q 'APROPOS recovery email has been sent' <<<"$response"
+          cat response.json
+          printf '\nHTTP %s\n' "$status"
+          test "$status" = '200'
+          grep -q '"ok":true' response.json
+          grep -q 'APROPOS recovery email has been sent' response.json
