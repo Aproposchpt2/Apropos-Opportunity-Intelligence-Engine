@@ -1,0 +1,29 @@
+name: Send Verified Executive Recovery Once
+
+on:
+  push:
+    branches:
+      - ops/send-executive-recovery-verified-20260805
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request production Executive recovery email
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --max-time 30 \
+            --output response.json \
+            --write-out '%{http_code}' \
+            'https://apie.aproposgroupllc.com/.netlify/functions/executive-auth' \
+            -H 'Origin: https://apie.aproposgroupllc.com' \
+            -H 'Content-Type: application/json' \
+            --data '{"action":"reset","email":"jmitchell@aproposgroupllc.com"}')"
+          cat response.json
+          printf '\nHTTP %s\n' "$status"
+          test "$status" = '200'
+          grep -q '"ok":true' response.json
+          grep -q 'APROPOS recovery email has been sent' response.json
