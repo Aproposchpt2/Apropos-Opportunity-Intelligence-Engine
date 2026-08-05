@@ -22,8 +22,12 @@ jobs:
           test -f assets/executive-command-center.js
           test -f assets/executive-launch.js
           test -f assets/mission-workspace.js
+          test -f assets/task-force-monitors/monitor-common.js
+          test -f assets/task-force-monitors/monitor-registry.js
+          test -f assets/task-force-monitors/monitor.css
           test -f netlify/functions/executive-auth.js
           test -f tests/executive-auth-standard.test.mjs
+          test -f tests/task-force-monitor.test.mjs
           grep -q "Executive Command Center" index.html
           grep -q "Launch Task Force" index.html
           grep -q "PROCUREMENT INVENTORY" index.html
@@ -38,11 +42,16 @@ jobs:
           node --check assets/executive-command-center.js
           node --check assets/executive-launch.js
           node --check assets/mission-workspace.js
+          for file in assets/task-force-monitors/*.js; do node --check "$file"; done
           node --check netlify/functions/executive-auth.js
+          node --check netlify/functions/command-executive-status.js
           node --check netlify/functions/_shared/native-runtime.js
 
       - name: Run blocking Executive authentication tests
         run: node --test tests/executive-auth-standard.test.mjs
+
+      - name: Run blocking mission-monitor tests
+        run: node --test tests/task-force-monitor.test.mjs
 
       - name: Run legacy acceptance suite for diagnostics
         continue-on-error: true
@@ -79,4 +88,4 @@ jobs:
 
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/executive-auth.css
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/executive-auth.css assets/task-force-monitors/*.js
