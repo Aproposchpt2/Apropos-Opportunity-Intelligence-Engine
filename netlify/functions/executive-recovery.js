@@ -10,16 +10,6 @@ function authConfig() {
   return { base, key };
 }
 
-function sameOrigin(req) {
-  const origin = String(req.headers.get('origin') || '').trim();
-  if (!origin) return true;
-  try {
-    return new URL(origin).origin === new URL(req.url).origin;
-  } catch {
-    return false;
-  }
-}
-
 function page(message = '') {
   const safeMessage = String(message || '').replace(/[&<>"']/g, character => ({
     '&': '&amp;',
@@ -100,13 +90,15 @@ async function verifyRecovery(tokenHash) {
 export default async req => {
   if (req.method === 'GET') return html(200);
   if (req.method !== 'POST') return html(405, 'This recovery operation accepts only the secure continuation form.');
-  if (!sameOrigin(req)) return html(403, 'The recovery request did not originate from the Executive Command Center.');
 
   try {
     const form = await req.formData();
     const tokenHash = String(form.get('token_hash') || '').trim();
     if (!tokenHash) return html(400, 'The recovery link is incomplete. Request a new password-reset email.');
 
+    // The one-time Supabase token is the authorization boundary. Email clients and
+    // privacy relays do not provide a dependable browser Origin/Referer header, and
+    // Netlify route rewrites may expose an internal function URL during comparison.
     const { res, data } = await verifyRecovery(tokenHash);
     const user = data?.user || data?.session?.user;
     const accessToken = String(data?.access_token || data?.session?.access_token || '').trim();
