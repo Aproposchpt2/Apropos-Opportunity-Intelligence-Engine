@@ -13,7 +13,7 @@ import {
   reportHash,
   resolveReportDefinition,
   NOT_REPORTED
-} from './_shared/mission-reporting.js';
+} from './_shared/mission-reporting-hardening.js';
 
 const enc = value => encodeURIComponent(String(value || ''));
 const inFilter = values => `(${values.map(value => `"${String(value).replaceAll('"', '\\"')}"`).join(',')})`;
@@ -229,6 +229,9 @@ export const handler = async event => {
         : response(404, { error: 'Report version not found', command_run_id: commandRunId, report_version: requestedVersion });
     }
 
+    const action = String(body.action || 'read').trim().toLowerCase();
+    if (action !== 'amend' && reports.length) return response(200, storedPayload(reports[0]));
+
     const context = await loadContext(commandRunId);
     if (context.notFound) return response(404, { error: 'Report not found', command_run_id: commandRunId });
 
@@ -239,10 +242,14 @@ export const handler = async event => {
       mission_type_key: context.run.mission_type_key || NOT_REPORTED
     });
 
-    const action = String(body.action || 'read').trim().toLowerCase();
-    const terminal = isTerminalOutcome(context.run.status || context.run.aadp_state);
+    if (context.readFailures.length) return response(503, {
+      error: 'One or more required evidence sources are unavailable. The report was not generated because unknown evidence cannot be represented as zero.',
+      code: 'EVIDENCE_SOURCE_UNAVAILABLE',
+      command_run_id: commandRunId,
+      source_failures: context.readFailures
+    });
 
-    if (action !== 'amend' && terminal && reports.length) return response(200, storedPayload(reports[0]));
+    const terminal = isTerminalOutcome(context.run.status || context.run.aadp_state);
 
     if (action === 'amend') {
       if (!terminal) return response(409, { error: 'Only terminal reports may be amended.' });
@@ -262,6 +269,7 @@ export const handler = async event => {
         amendmentReason: reason,
         supersedesReportId: latest.id,
         originalEvidenceHash: original.report_hash,
+        finalizedAt: latest.finalized_at,
         production: productionEvidence()
       });
       const hash = reportHash(report);
