@@ -11,6 +11,485 @@
   <link rel="stylesheet" href="assets/command-center.css">
   <link rel="stylesheet" href="assets/executive-command-center.css">
   <link rel="stylesheet" href="assets/executive-dashboard-layout.css">
+
+  <style>
+    :root {
+      --ecc-navy-950: #06152f;
+      --ecc-navy-900: #081c3d;
+      --ecc-navy-800: #0d2a56;
+      --ecc-navy-700: #163c72;
+      --ecc-gold-500: #d7a94d;
+      --ecc-gold-300: #efce87;
+      --ecc-ivory: #f7f3e9;
+      --ecc-paper: #fffdf8;
+      --ecc-cloud: #eef2f6;
+      --ecc-slate-700: #3d4a5d;
+      --ecc-slate-500: #6a7687;
+      --ecc-border: #d9dee7;
+      --ecc-success: #236a4b;
+      --ecc-warning: #8a5a13;
+      --ecc-danger: #9a3b3b;
+      --ecc-shadow: 0 20px 55px rgba(7, 28, 61, 0.12);
+      --ecc-sidebar-width: 390px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-height: 100%; background: var(--ecc-cloud); }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ecc-navy-950);
+      background:
+        radial-gradient(circle at 85% 0%, rgba(215, 169, 77, 0.12), transparent 28rem),
+        linear-gradient(180deg, #f5f7fa 0%, #e9eef4 100%);
+      font-family: "Jost", Arial, sans-serif;
+      line-height: 1.5;
+    }
+
+    button,
+    input,
+    select { font: inherit; }
+
+    #gateOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: rgba(6, 21, 47, 0.92);
+      backdrop-filter: blur(12px);
+    }
+
+    #gateOverlay.gate-visible { display: grid; }
+
+    .gate-panel {
+      width: min(460px, 100%);
+      padding: 38px;
+      border: 1px solid rgba(239, 206, 135, 0.45);
+      border-radius: 18px;
+      color: #fff;
+      background: linear-gradient(145deg, var(--ecc-navy-800), var(--ecc-navy-950));
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    .gate-title {
+      margin: 8px 0 10px;
+      font: 500 clamp(2rem, 5vw, 3rem)/1.05 "Bodoni Moda", Georgia, serif;
+    }
+
+    .gate-copy { margin: 0 0 22px; color: #d9e2ef; }
+    .gate-form { display: grid; gap: 12px; }
+
+    .gate-input {
+      width: 100%;
+      min-height: 48px;
+      padding: 0 14px;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 9px;
+      color: #fff;
+      background: rgba(255,255,255,.08);
+      outline: none;
+    }
+
+    .gate-input:focus { border-color: var(--ecc-gold-300); box-shadow: 0 0 0 3px rgba(239,206,135,.14); }
+    .gate-error { min-height: 1.4em; margin: 12px 0 0; color: #ffd3d3; }
+
+    .operations-shell.ecc-shell {
+      display: grid;
+      grid-template-columns: var(--ecc-sidebar-width) minmax(0, 1fr);
+      min-height: 100vh;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .ecc-sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 28px 24px 24px;
+      color: #fff;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.025), transparent 22%),
+        linear-gradient(160deg, var(--ecc-navy-800) 0%, var(--ecc-navy-950) 78%);
+      border-right: 1px solid rgba(239, 206, 135, 0.22);
+      box-shadow: 18px 0 50px rgba(6, 21, 47, 0.15);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(239,206,135,.45) transparent;
+    }
+
+    .ecc-sidebar-brand {
+      padding: 4px 6px 23px;
+      border-bottom: 1px solid rgba(255,255,255,.14);
+    }
+
+    .ecc-brand-mark {
+      display: inline-grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      margin-bottom: 18px;
+      border: 1px solid var(--ecc-gold-500);
+      border-radius: 50%;
+      color: var(--ecc-gold-300);
+      font: 500 1rem/1 "Bodoni Moda", Georgia, serif;
+      letter-spacing: .1em;
+    }
+
+    .ecc-sidebar-brand .eyebrow,
+    .ecc-workspace .eyebrow,
+    .section-kicker {
+      margin: 0;
+      color: var(--ecc-gold-500);
+      font-size: .69rem;
+      font-weight: 600;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    .ecc-sidebar-brand h1 {
+      margin: 8px 0 6px;
+      color: #fff;
+      font: 500 2rem/1.06 "Bodoni Moda", Georgia, serif;
+    }
+
+    .ecc-sidebar-brand .subtitle {
+      margin: 0;
+      color: #c8d2e0;
+      font-size: .92rem;
+      letter-spacing: .04em;
+    }
+
+    .ecc-command-primary {
+      margin-top: 24px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .ecc-command-primary .panel-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255,255,255,.14);
+    }
+
+    .ecc-command-primary h2 {
+      margin: 5px 0 0;
+      color: #fff;
+      font: 500 1.55rem/1.1 "Bodoni Moda", Georgia, serif;
+    }
+
+    .ecc-launch { display: grid; gap: 15px; }
+
+    .ecc-launch label {
+      display: grid;
+      gap: 7px;
+      color: #d5deea;
+      font-size: .74rem;
+      font-weight: 500;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .ecc-launch select,
+    .ecc-launch input[type="text"] {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 13px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 8px;
+      color: #f8fafc;
+      background: rgba(255,255,255,.075);
+      outline: none;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .ecc-launch select { color-scheme: dark; }
+    .ecc-launch select option { color: #111827; background: #fff; }
+
+    .ecc-launch select:focus,
+    .ecc-launch input[type="text"]:focus {
+      border-color: var(--ecc-gold-300);
+      box-shadow: 0 0 0 3px rgba(239,206,135,.12);
+    }
+
+    .ecc-task-configuration:empty { display: none; }
+
+    .primary-action.ecc-execute,
+    .primary-action.gate-submit {
+      min-height: 48px;
+      border: 1px solid var(--ecc-gold-300);
+      border-radius: 8px;
+      color: var(--ecc-navy-950);
+      background: linear-gradient(135deg, var(--ecc-gold-300), var(--ecc-gold-500));
+      box-shadow: 0 12px 28px rgba(215,169,77,.2);
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      transition: transform .18s ease, filter .18s ease, box-shadow .18s ease;
+    }
+
+    .primary-action:hover { transform: translateY(-1px); filter: brightness(1.04); box-shadow: 0 16px 32px rgba(215,169,77,.28); }
+
+    .ecc-message {
+      margin: 15px 0 0;
+      padding: 12px 13px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      color: #c9d4e2;
+      background: rgba(255,255,255,.045);
+      font-size: .84rem;
+    }
+
+    .ecc-sidebar-status {
+      margin-top: 24px;
+      padding: 16px;
+      border: 1px solid rgba(239,206,135,.2);
+      border-radius: 10px;
+      background: rgba(255,255,255,.04);
+    }
+
+    .ecc-sidebar-status strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ecc-gold-300);
+      font-size: .74rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .ecc-sidebar-status span { color: #c8d2e0; font-size: .82rem; }
+
+    .ecc-workspace {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .command-header.ecc-header {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 172px;
+      padding: 40px clamp(28px, 4vw, 64px) 30px;
+      color: var(--ecc-navy-950);
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.94), rgba(247,243,233,.88)),
+        radial-gradient(circle at 85% 10%, rgba(215,169,77,.18), transparent 28rem);
+      border-bottom: 1px solid var(--ecc-border);
+    }
+
+    .command-header.ecc-header::after {
+      content: "";
+      position: absolute;
+      left: clamp(28px, 4vw, 64px);
+      right: clamp(28px, 4vw, 64px);
+      bottom: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--ecc-gold-500), transparent 55%);
+    }
+
+    .ecc-header h2 {
+      margin: 8px 0 4px;
+      font: 500 clamp(2.25rem, 4vw, 4.35rem)/.98 "Bodoni Moda", Georgia, serif;
+      letter-spacing: -.035em;
+    }
+
+    .ecc-header .subtitle { margin: 0; color: var(--ecc-slate-500); font-size: 1rem; }
+
+    .ecc-header-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .ecc-meta-chip {
+      padding: 8px 12px;
+      border: 1px solid #cfd6e0;
+      border-radius: 999px;
+      color: var(--ecc-navy-800);
+      background: rgba(255,255,255,.72);
+      font-size: .7rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .ecc-main {
+      flex: 1;
+      display: block;
+      padding: clamp(24px, 3.5vw, 52px) clamp(24px, 4vw, 64px) 34px;
+    }
+
+    .ecc-right-column {
+      display: grid;
+      gap: 28px;
+      width: 100%;
+    }
+
+    .panel.ecc-inventory-panel,
+    .panel.ecc-monitor-panel {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(7, 28, 61, 0.11);
+      border-radius: 14px;
+      background: rgba(255, 253, 248, 0.94);
+      box-shadow: var(--ecc-shadow);
+    }
+
+    .panel.ecc-inventory-panel::before,
+    .panel.ecc-monitor-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--ecc-gold-500), var(--ecc-navy-700));
+    }
+
+    .panel-heading.ecc-inventory-heading,
+    .panel-heading.ecc-monitor-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 25px 28px 20px 32px;
+      border-bottom: 1px solid var(--ecc-border);
+      background: linear-gradient(90deg, rgba(247,243,233,.78), rgba(255,255,255,.85));
+    }
+
+    .panel-heading h2 {
+      margin: 5px 0 0;
+      color: var(--ecc-navy-950);
+      font: 500 clamp(1.55rem, 2.5vw, 2.15rem)/1.1 "Bodoni Moda", Georgia, serif;
+    }
+
+    .ecc-inventory-updated,
+    .ecc-updated {
+      color: var(--ecc-slate-500);
+      font-size: .76rem;
+      letter-spacing: .04em;
+    }
+
+    .ecc-inventory-table-wrap { overflow-x: auto; padding: 6px 28px 28px 32px; }
+
+    .ecc-inventory-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    .ecc-inventory-table th,
+    .ecc-inventory-table td {
+      padding: 18px 15px;
+      border-bottom: 1px solid #e3e7ed;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .ecc-inventory-table thead th {
+      color: var(--ecc-slate-500);
+      font-size: .68rem;
+      font-weight: 600;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .ecc-inventory-table tbody th { color: var(--ecc-navy-800); font-weight: 600; }
+
+    .ecc-inventory-count {
+      color: var(--ecc-navy-950);
+      font: 500 2rem/1 "Bodoni Moda", Georgia, serif;
+    }
+
+    .ecc-inventory-source { color: var(--ecc-slate-700); }
+
+    .ecc-inventory-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 78px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: .67rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .ecc-loading { color: var(--ecc-warning); background: #fff3d8; border: 1px solid #ead39c; }
+
+    .ecc-task-force-monitor {
+      min-height: 290px;
+      padding: 26px 32px 32px;
+    }
+
+    .ecc-empty {
+      display: grid;
+      place-items: center;
+      min-height: 210px;
+      margin: 0;
+      border: 1px dashed #cbd3df;
+      border-radius: 11px;
+      color: var(--ecc-slate-500);
+      background: linear-gradient(135deg, rgba(238,242,246,.65), rgba(255,255,255,.65));
+      text-align: center;
+    }
+
+    .ecc-workspace footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 17px clamp(24px, 4vw, 64px) 22px;
+      color: var(--ecc-slate-500);
+      font-size: .72rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 1100px) {
+      :root { --ecc-sidebar-width: 340px; }
+      .command-header.ecc-header { align-items: flex-start; flex-direction: column; }
+      .ecc-header-meta { justify-content: flex-start; }
+    }
+
+    @media (max-width: 850px) {
+      .operations-shell.ecc-shell { display: block; }
+      .ecc-sidebar {
+        position: relative;
+        width: 100%;
+        height: auto;
+        max-height: none;
+        padding: 24px;
+      }
+      .ecc-sidebar-brand h1 { font-size: 1.8rem; }
+      .command-header.ecc-header { min-height: auto; padding-top: 30px; }
+      .ecc-main { padding: 22px 18px 28px; }
+      .ecc-workspace footer { flex-direction: column; }
+    }
+
+    @media (max-width: 560px) {
+      .panel-heading.ecc-inventory-heading,
+      .panel-heading.ecc-monitor-heading { align-items: flex-start; flex-direction: column; padding: 22px; }
+      .ecc-inventory-table-wrap { padding: 4px 18px 22px; }
+      .ecc-task-force-monitor { padding: 20px; }
+      .ecc-header h2 { font-size: 2.35rem; }
+    }
+  </style>
 </head>
 <body>
 <div id="gateOverlay" class="gate-visible">
@@ -27,15 +506,14 @@
 </div>
 
 <div class="operations-shell ecc-shell">
-  <header class="command-header ecc-header">
-    <div>
+  <aside class="ecc-sidebar" aria-label="Task Force launch controls">
+    <div class="ecc-sidebar-brand">
+      <div class="ecc-brand-mark" aria-hidden="true">AG</div>
       <p class="eyebrow">APROPOS INTELLIGENCE OPERATING SYSTEM</p>
       <h1>Executive Command Center</h1>
-      <p class="subtitle">Command. Monitor. Review.</p>
+      <p class="subtitle">Command authority and mission launch control.</p>
     </div>
-  </header>
 
-  <main class="ecc-main">
     <section class="panel ecc-command-primary" aria-labelledby="taskExecutionHeading">
       <div class="panel-heading">
         <div>
@@ -130,69 +608,90 @@
           <input id="eccAgent" type="hidden" value="">
         </label>
 
-        <button type="submit" class="primary-action ecc-execute">EXECUTE</button>
+        <button type="submit" class="primary-action ecc-execute">Execute Mission</button>
       </form>
 
       <p id="eccLaunchMessage" class="ecc-message">Select a task and operating scope.</p>
     </section>
 
-    <div class="ecc-right-column">
-      <section class="panel ecc-inventory-panel" aria-labelledby="inventoryHeading">
-        <div class="panel-heading ecc-inventory-heading">
-          <div>
-            <p class="section-kicker">PROCUREMENT INVENTORY</p>
-            <h2 id="inventoryHeading">Current System Counts</h2>
-          </div>
-          <small id="eccInventoryUpdated" class="ecc-inventory-updated">Waiting for inventory</small>
-        </div>
-
-        <div class="ecc-inventory-table-wrap">
-          <table class="ecc-inventory-table">
-            <thead>
-              <tr>
-                <th scope="col">Inventory</th>
-                <th scope="col">Current Count</th>
-                <th scope="col">Detail</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">Current Contracts</th>
-                <td id="eccCurrentContractCount" class="ecc-inventory-count">—</td>
-                <td id="eccCurrentContractDetail" class="ecc-inventory-source">Open contracts with an active deadline</td>
-                <td><span id="eccCurrentContractStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
-              </tr>
-              <tr>
-                <th scope="row">Publishers</th>
-                <td id="eccPublisherCount" class="ecc-inventory-count">—</td>
-                <td id="eccPublisherDetail" class="ecc-inventory-source">Publisher Registry profiles</td>
-                <td><span id="eccPublisherStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel ecc-monitor-panel" aria-labelledby="taskForceMonitorHeading">
-        <div class="panel-heading ecc-monitor-heading">
-          <div>
-            <p class="section-kicker">ACTIVITY MONITOR</p>
-            <h2 id="taskForceMonitorHeading">Task Force Monitor</h2>
-          </div>
-          <small id="eccUpdated" class="ecc-updated">Waiting for status</small>
-        </div>
-        <div id="eccTaskForceMonitor" class="ecc-task-force-monitor" aria-live="polite">
-          <p class="ecc-empty">No Task Force Instances are available.</p>
-        </div>
-      </section>
+    <div class="ecc-sidebar-status">
+      <strong>Operating Posture</strong>
+      <span>Internal controlled system · Authorized executive operations only</span>
     </div>
-  </main>
+  </aside>
 
-  <footer>
-    <span>APROPOS GROUP LLC</span>
-    <span>Executive Mission Control · Internal Controlled System</span>
-  </footer>
+  <div class="ecc-workspace">
+    <header class="command-header ecc-header">
+      <div>
+        <p class="eyebrow">EXECUTIVE MISSION CONTROL</p>
+        <h2>Procurement Operations</h2>
+        <p class="subtitle">Monitor inventory, active task forces, and system execution from one command view.</p>
+      </div>
+      <div class="ecc-header-meta" aria-label="System classifications">
+        <span class="ecc-meta-chip">Internal Controlled System</span>
+        <span class="ecc-meta-chip">Executive Access</span>
+      </div>
+    </header>
+
+    <main class="ecc-main">
+      <div class="ecc-right-column">
+        <section class="panel ecc-inventory-panel" aria-labelledby="inventoryHeading">
+          <div class="panel-heading ecc-inventory-heading">
+            <div>
+              <p class="section-kicker">PROCUREMENT INVENTORY</p>
+              <h2 id="inventoryHeading">Current System Counts</h2>
+            </div>
+            <small id="eccInventoryUpdated" class="ecc-inventory-updated">Waiting for inventory</small>
+          </div>
+
+          <div class="ecc-inventory-table-wrap">
+            <table class="ecc-inventory-table">
+              <thead>
+                <tr>
+                  <th scope="col">Inventory</th>
+                  <th scope="col">Current Count</th>
+                  <th scope="col">Operational Detail</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Current Contracts</th>
+                  <td id="eccCurrentContractCount" class="ecc-inventory-count">—</td>
+                  <td id="eccCurrentContractDetail" class="ecc-inventory-source">Open contracts with an active deadline</td>
+                  <td><span id="eccCurrentContractStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Publishers</th>
+                  <td id="eccPublisherCount" class="ecc-inventory-count">—</td>
+                  <td id="eccPublisherDetail" class="ecc-inventory-source">Publisher Registry profiles</td>
+                  <td><span id="eccPublisherStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel ecc-monitor-panel" aria-labelledby="taskForceMonitorHeading">
+          <div class="panel-heading ecc-monitor-heading">
+            <div>
+              <p class="section-kicker">ACTIVITY MONITOR</p>
+              <h2 id="taskForceMonitorHeading">Task Force Monitor</h2>
+            </div>
+            <small id="eccUpdated" class="ecc-updated">Waiting for status</small>
+          </div>
+          <div id="eccTaskForceMonitor" class="ecc-task-force-monitor" aria-live="polite">
+            <p class="ecc-empty">No Task Force Instances are available.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <span>APROPOS GROUP LLC</span>
+      <span>Executive Mission Control · Internal Controlled System</span>
+    </footer>
+  </div>
 </div>
 
 <script src="assets/runtime-config.js"></script>
