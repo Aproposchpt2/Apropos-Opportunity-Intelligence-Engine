@@ -1,1 +1,73 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>APIOS Mission Workspace</title><link rel="stylesheet" href="../assets/command-center.css"><link rel="stylesheet" href="../assets/executive-command-center.css"></head><body><div id="gateOverlay" class="gate-visible"><div class="panel gate-panel"><p class="section-kicker">AUTHORIZATION REQUIRED</p><h2>Mission Workspace</h2><form id="gateForm" class="gate-form"><input id="gatePassword" type="password" class="gate-input" placeholder="Password"><button class="primary-action">Enter</button></form><p id="gateError" class="gate-error"></p></div></div><div class="operations-shell"><header class="command-header"><div><p class="eyebrow">APROPOS INTELLIGENCE OPERATING SYSTEM</p><h1 id="mwTitle">Mission Workspace</h1><p class="subtitle" id="mwSubtitle">Loading mission intelligence…</p></div><div class="header-status"><span>MISSION STATE</span><strong id="systemStatus" class="status-pill status-idle">INITIALIZING</strong><small id="mwUpdated">—</small></div></header><main><section class="panel"><a href="/">← Executive Dashboard</a><div id="mwSummary" class="ecc-totals" style="margin-top:16px"></div></section><section class="panel"><div class="panel-heading"><div><p class="section-kicker">MISSION PROGRESS</p><h2>Execution Stages</h2></div></div><div id="mwStages" class="ecc-list"></div></section><section id="mwPublisherReview" class="panel" hidden><div class="panel-heading"><div><p class="section-kicker">PUBLISHER GOVERNANCE</p><h2>Candidate Review</h2></div><span class="status-pill status-running">Human Authorization</span></div><p>Publisher candidates remain non-authoritative until reviewed. Approve only candidates with verified official-source evidence; reject unsuitable candidates.</p><div id="mwPublisherCandidates" class="ecc-list"></div><p id="mwPublisherReviewMessage" class="ecc-message"></p></section><section class="ecc-two"><article class="panel"><div class="panel-heading"><div><p class="section-kicker">LIVE ACTIVITY</p><h2>Execution Timeline</h2></div></div><div id="mwEvents" class="ecc-notifications"></div></article><article class="panel"><div class="panel-heading"><div><p class="section-kicker">EXCEPTIONS</p><h2>Action Required</h2></div></div><div id="mwFailures" class="ecc-notifications"></div></article></section></main></div><script src="../assets/runtime-config.js"></script><script src="../assets/executive-core.js" defer></script><script src="../assets/mission-workspace.js" defer></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <base href="/">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>APIE Mission Execution Report</title>
+  <link rel="stylesheet" href="/assets/executive-auth.css">
+  <link rel="stylesheet" href="/assets/mission-report.css">
+</head>
+<body class="report-page">
+  <div id="gateOverlay" class="gate-visible"></div>
+
+  <header class="report-topbar no-print">
+    <div>
+      <p class="report-kicker">APROPOS GROUP LLC · PROCUREMENT INTELLIGENCE ENGINE</p>
+      <strong>Mission Execution Reporting System</strong>
+    </div>
+    <nav aria-label="Report navigation">
+      <a href="/">Executive Dashboard</a>
+      <a href="/mission-reports/">Mission Reports Registry</a>
+    </nav>
+  </header>
+
+  <main class="report-shell">
+    <section id="reportHero" class="report-hero">
+      <div>
+        <p class="report-kicker">MISSION-SPECIFIC EXECUTION REPORT</p>
+        <h1 id="reportTitle">Loading report…</h1>
+        <p id="reportSubtitle">Validating the command run and assembling backend evidence.</p>
+      </div>
+      <div class="report-state-block">
+        <span>REPORT STATE</span>
+        <strong id="reportState" class="status-badge status-draft">DRAFT</strong>
+        <small id="reportGenerated">—</small>
+      </div>
+    </section>
+
+    <section class="report-controls no-print" aria-label="Report controls">
+      <button id="printReport" type="button" disabled>PRINT / SAVE AS PDF</button>
+      <button id="downloadJson" type="button" disabled>DOWNLOAD JSON</button>
+      <button id="copyReportId" type="button" disabled>COPY REPORT ID</button>
+      <span id="reportControlMessage" role="status"></span>
+    </section>
+
+    <section id="reportError" class="report-error" hidden>
+      <p class="report-kicker">REPORT UNAVAILABLE</p>
+      <h2 id="reportErrorTitle">Report not found</h2>
+      <p id="reportErrorMessage">The requested report could not be loaded.</p>
+    </section>
+
+    <div id="reportBody" class="report-body" hidden></div>
+
+    <footer class="report-footer">
+      <div>
+        <span>REPORT HASH</span>
+        <code id="reportHash">NOT REPORTED</code>
+      </div>
+      <div class="ecc-sidebar-footer no-print">
+        <small>AUTHORIZED OPERATOR</small>
+        <strong id="eccOperatorEmail">Session not established</strong>
+        <button id="eccSignOut" type="button">Sign out</button>
+        <span>Executive Mission Control · Internal Controlled System</span>
+      </div>
+    </footer>
+  </main>
+
+  <script src="/assets/runtime-config.js"></script>
+  <script src="/assets/executive-core.js" defer></script>
+  <script src="/assets/mission-report.js" defer></script>
+</body>
+</html>
