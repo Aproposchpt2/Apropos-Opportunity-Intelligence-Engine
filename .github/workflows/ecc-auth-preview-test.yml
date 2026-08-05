@@ -1,0 +1,78 @@
+name: ECC Auth Preview Test
+
+on:
+  push:
+    branches:
+      - feature/executive-email-auth
+
+permissions:
+  contents: read
+
+jobs:
+  preview-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Executive authentication preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://deploy-preview-26--apropos-procurement-engine.netlify.app"
+
+          ready=0
+          for attempt in $(seq 1 36); do
+            status=$(curl --silent --show-error --output /tmp/ecc-index.html --write-out '%{http_code}' "$BASE/")
+            if [ "$status" = "200" ]; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
+
+          grep -q 'assets/executive-core.js' /tmp/ecc-index.html
+
+          status=$(curl --silent --show-error --output /tmp/ecc-auth.css --write-out '%{http_code}' "$BASE/assets/executive-auth.css")
+          test "$status" = "200"
+          grep -q 'ecc-auth-shell' /tmp/ecc-auth.css
+
+          status=$(curl --silent --show-error --output /tmp/ecc-core.js --write-out '%{http_code}' "$BASE/assets/executive-core.js")
+          test "$status" = "200"
+          grep -q 'Forgot password?' /tmp/ecc-core.js
+          grep -q 'apieExecutiveSession' /tmp/ecc-core.js
+
+          status=$(curl --silent --show-error --output /tmp/session.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --data '{"action":"session"}' \
+            "$BASE/.netlify/functions/executive-auth")
+          test "$status" = "401"
+          grep -q 'Executive operator session required' /tmp/session.json
+
+          status=$(curl --silent --show-error --output /tmp/denied.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --data '{"action":"login","email":"unauthorized@example.com","password":"not-used"}' \
+            "$BASE/.netlify/functions/executive-auth")
+          test "$status" = "401"
+          grep -q 'Operator access denied' /tmp/denied.json
+
+          status=$(curl --silent --show-error --output /tmp/reset.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --data '{"action":"reset","email":"unauthorized@example.com"}' \
+            "$BASE/.netlify/functions/executive-auth")
+          test "$status" = "200"
+          grep -q 'recovery email has been sent' /tmp/reset.json
+
+          status=$(curl --silent --show-error --output /tmp/reset-page.html --write-out '%{http_code}' "$BASE/reset-password")
+          test "$status" = "200"
+          grep -q 'assets/executive-core.js' /tmp/reset-page.html
+
+          status=$(curl --silent --show-error --output /tmp/status.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --data '{}' \
+            "$BASE/.netlify/functions/command-executive-status")
+          test "$status" = "401"
+
+          echo 'Executive authentication preview smoke test passed.'
