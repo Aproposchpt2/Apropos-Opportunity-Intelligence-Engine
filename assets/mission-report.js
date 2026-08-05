@@ -63,8 +63,8 @@ function renderTable(rows) {
   </table></div>`;
 }
 
-function card(kicker, title, content, extra = '') {
-  return `<section class="report-card">
+function card(kicker, title, content, extra = '', className = '') {
+  return `<section class="report-card ${esc(className)}">
     <div class="section-heading">
       <div><p class="report-kicker">${esc(kicker)}</p><h2>${esc(title)}</h2></div>
       ${extra}
@@ -116,6 +116,16 @@ function renderPublisher(section) {
     </div>`;
 }
 
+function renderEvidenceAppendix(appendix) {
+  const reference = appendix?.primary_report_reference ||
+    'Full raw evidence remains available in the machine-readable JSON export.';
+  return `<p class="appendix-reference">${esc(reference)}</p>
+    <details class="evidence-appendix-details">
+      <summary>Expand raw evidence appendix</summary>
+      <div class="evidence-appendix-content">${renderObjectGrid(appendix)}</div>
+    </details>`;
+}
+
 function statusClass(value) {
   return `status-${String(value || 'draft').toLowerCase().replaceAll('_', '-')}`;
 }
@@ -125,11 +135,12 @@ function reportMarkup(report) {
   const identity = report.mission_identity || {};
   const determination = report.executive_determination || {};
   const acceptance = report.final_acceptance_decision || {};
+  const operationalOutcome = report.run_status?.derived_operational_outcome || identity.final_status || 'DRAFT';
   return [
     card('1 · EXECUTIVE DETERMINATION', 'Executive Determination',
       `${renderObjectGrid(determination)}
-       <div class="evidence-block current"><span class="evidence-badge current">FINAL DECISION</span>${renderObjectGrid(acceptance)}</div>`,
-      `<span class="status-badge ${statusClass(identity.final_status)}">${esc(identity.final_status || 'DRAFT')}</span>`),
+       <div class="evidence-block current"><span class="evidence-badge current">FINAL OR INTERIM DECISION</span>${renderObjectGrid(acceptance)}</div>`,
+      `<span class="status-badge ${statusClass(operationalOutcome)}">${esc(operationalOutcome)}</span>`),
     card('2 · MISSION IDENTITY', 'Mission Identity', renderObjectGrid(identity)),
     card('3 · AUTHORIZED SCOPE', 'Authorized Scope', renderObjectGrid(report.authorized_scope)),
     card('4 · PUBLISHER AND CONNECTOR', 'Publisher and Connector Evidence', renderPublisher(report.publisher_and_connector)),
@@ -146,7 +157,7 @@ function reportMarkup(report) {
     card('15 · OPERATOR ACTIONS', 'Operator Actions', renderTable(report.operator_actions)),
     card('16 · FINAL ACCEPTANCE DECISION', 'Final Acceptance Decision', renderObjectGrid(acceptance)),
     card('17 · RESTART OR FOLLOW-UP INSTRUCTIONS', 'Restart or Follow-Up Instructions', renderObjectGrid(report.restart_or_follow_up_instructions)),
-    card('18 · EVIDENCE APPENDIX', 'Evidence Appendix', renderObjectGrid(report.evidence_appendix)),
+    card('18 · EVIDENCE APPENDIX', 'Evidence Appendix', renderEvidenceAppendix(report.evidence_appendix), '', 'evidence-appendix-card'),
     card('REPORT CONTROL', 'Report Metadata', renderObjectGrid(metadata))
   ].join('');
 }
@@ -198,7 +209,7 @@ function showReport(data) {
   byId('reportState').textContent = metadata.report_state || 'DRAFT';
   byId('reportState').className = `status-badge ${statusClass(metadata.report_state)}`;
   byId('reportGenerated').textContent = `Generated ${dateValue(metadata.generated_at)}`;
-  byId('reportHash').textContent = loadedStorage.report_hash || 'NOT REPORTED';
+  byId('reportHash').textContent = metadata.report_hash || loadedStorage.report_hash || 'NOT REPORTED';
   byId('reportBody').innerHTML = reportMarkup(loadedReport);
   byId('reportBody').hidden = false;
   byId('reportError').hidden = true;
@@ -222,7 +233,8 @@ byId('printReport').addEventListener('click', () => window.print());
 
 byId('downloadJson').addEventListener('click', () => {
   if (!loadedReport) return;
-  const blob = new Blob([JSON.stringify(loadedReport, null, 2)], { type: 'application/json' });
+  const exportPayload = { report: loadedReport, storage: loadedStorage };
+  const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   const runId = loadedReport.mission_identity?.command_run_id || 'mission';
