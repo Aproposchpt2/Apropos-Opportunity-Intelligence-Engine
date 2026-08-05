@@ -1,20 +1,27 @@
 import {
   env,
-  header,
   issueDashboardToken,
-  parseBody,
-  response,
   verifyDashboardToken
 } from './_shared/native-runtime.js';
 
 const allowedEmail = () =>
   String(env('EXECUTIVE_OPERATOR_EMAIL') || 'jmitchell@aproposgroupllc.com').trim().toLowerCase();
 
-function sameOrigin(event) {
-  const origin = String(header(event, 'origin') || '').trim();
+function json(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store'
+    }
+  });
+}
+
+function sameOrigin(req) {
+  const origin = String(req.headers.get('origin') || '').trim();
   if (!origin) return true;
   try {
-    return new URL(origin).host === header(event, 'host');
+    return new URL(origin).origin === new URL(req.url).origin;
   } catch {
     return false;
   }
@@ -33,7 +40,7 @@ async function authRequest(path, options = {}) {
     ...options,
     headers: {
       apikey: key,
-      'Content-Type': 'application/json',
+      'content-type': 'application/json',
       ...(options.headers || {})
     },
     signal: AbortSignal.timeout(30000)
@@ -43,32 +50,35 @@ async function authRequest(path, options = {}) {
   return { res, data };
 }
 
-function bearer(event) {
-  return String(header(event, 'authorization') || '').match(/^Bearer\s+(.+)$/i)?.[1] || '';
+function bearer(req) {
+  return String(req.headers.get('authorization') || '').match(/^Bearer\s+(.+)$/i)?.[1] || '';
 }
 
-export const handler = async event => {
-  if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
-  if (event?.httpMethod !== 'POST') return response(405, { ok: false, error: 'POST only.' });
-  if (!sameOrigin(event)) return response(403, { ok: false, error: 'Same-origin request required.' });
+export default async req => {
+  if (req.method === 'OPTIONS') return json(200, { ok: true });
+  if (req.method !== 'POST') return json(405, { ok: false, error: 'POST only.' });
+  if (!sameOrigin(req)) return json(403, { ok: false, error: 'Same-origin request required.' });
 
-  const body = parseBody(event);
+  let body;
+  try { body = await req.json(); }
+  catch { return json(400, { ok: false, error: 'Invalid JSON.' }); }
+
   const action = String(body.action || 'session').trim().toLowerCase();
 
   try {
     if (action === 'session') {
-      const session = verifyDashboardToken(bearer(event));
+      const session = verifyDashboardToken(bearer(req));
       return session
-        ? response(200, { ok: true, authenticated: true, email: session.email, expires_at: session.exp })
-        : response(401, { ok: false, error: 'Executive operator session required.' });
+        ? json(200, { ok: true, authenticated: true, email: session.email, expires_at: session.exp })
+        : json(401, { ok: false, error: 'Executive operator session required.' });
     }
 
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       const password = String(body.password || '');
 
-      if (email !== allowedEmail()) return response(401, { ok: false, error: 'Operator access denied.' });
-      if (!password) return response(400, { ok: false, error: 'Password is required.' });
+      if (email !== allowedEmail()) return json(401, { ok: false, error: 'Operator access denied.' });
+      if (!password) return json(400, { ok: false, error: 'Password is required.' });
 
       const { res, data } = await authRequest('token?grant_type=password', {
         method: 'POST',
@@ -76,11 +86,11 @@ export const handler = async event => {
       });
 
       if (!res.ok || data.user?.email?.toLowerCase() !== allowedEmail()) {
-        return response(401, { ok: false, error: 'Invalid operator email or password.' });
+        return json(401, { ok: false, error: 'Invalid operator email or password.' });
       }
 
       const dashboardToken = issueDashboardToken(data.user);
-      return response(200, {
+      return json(200, {
         ok: true,
         authenticated: true,
         dashboard_token: dashboardToken,
@@ -107,44 +117,44 @@ export const handler = async event => {
 
         if (!res.ok) {
           console.error('[executive-auth] recovery rejected', res.status, data?.error_code || data?.code || 'unknown');
-          return response(502, {
+          return json(502, {
             ok: false,
             error: data?.msg || data?.message || 'Supabase rejected the recovery request.'
           });
         }
       }
 
-      return response(200, {
+      return json(200, {
         ok: true,
         message: 'If the authorized operator account exists, a recovery email has been sent.'
       });
     }
 
     if (action === 'update-password') {
-      const recoveryToken = bearer(event);
+      const recoveryToken = bearer(req);
       const password = String(body.password || '');
 
-      if (!recoveryToken) return response(401, { ok: false, error: 'Valid recovery session required.' });
-      if (password.length < 12) return response(400, { ok: false, error: 'Use at least 12 characters.' });
+      if (!recoveryToken) return json(401, { ok: false, error: 'Valid recovery session required.' });
+      if (password.length < 12) return json(400, { ok: false, error: 'Use at least 12 characters.' });
 
       const { res, data } = await authRequest('user', {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${recoveryToken}` },
+        headers: { authorization: `Bearer ${recoveryToken}` },
         body: JSON.stringify({ password })
       });
 
       if (!res.ok) {
-        return response(res.status, { ok: false, error: data?.message || 'Password update failed.' });
+        return json(res.status, { ok: false, error: data?.message || 'Password update failed.' });
       }
 
-      return response(200, { ok: true, message: 'Password updated. Sign in with the new password.' });
+      return json(200, { ok: true, message: 'Password updated. Sign in with the new password.' });
     }
 
-    return response(400, { ok: false, error: 'Unknown authentication action.' });
+    return json(400, { ok: false, error: 'Unknown authentication action.' });
   } catch (error) {
     console.error('[executive-auth]', error);
     const configurationError = /configuration incomplete/i.test(String(error?.message || ''));
-    return response(configurationError ? 503 : 500, {
+    return json(configurationError ? 503 : 500, {
       ok: false,
       error: configurationError ? error.message : 'Authentication service failed.'
     });
