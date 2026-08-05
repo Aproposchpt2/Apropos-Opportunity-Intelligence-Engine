@@ -87,6 +87,8 @@ test('Executive recovery bridge waits for explicit operator continuation before 
   assert.match(source, /type: 'recovery'/);
   assert.match(source, /access_token/);
   assert.match(source, /path: '\/executive-recovery'/);
+  assert.doesNotMatch(source, /sameOrigin/);
+  assert.doesNotMatch(source, /did not originate from the Executive Command Center/);
 });
 
 test('Executive authentication styling preserves the approved command-center standard', async () => {
