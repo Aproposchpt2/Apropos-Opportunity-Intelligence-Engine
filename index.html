@@ -5,53 +5,60 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow">
   <title>APROPOS Executive Command Center</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="assets/command-center.css">
   <link rel="stylesheet" href="assets/executive-command-center.css">
   <link rel="stylesheet" href="assets/executive-dashboard-layout.css">
 
   <style>
     :root {
-      --ecc-navy-950: #06152f;
-      --ecc-navy-900: #081c3d;
-      --ecc-navy-800: #0d2a56;
-      --ecc-navy-700: #163c72;
-      --ecc-gold-500: #d7a94d;
-      --ecc-gold-300: #efce87;
-      --ecc-ivory: #f7f3e9;
-      --ecc-paper: #fffdf8;
-      --ecc-cloud: #eef2f6;
-      --ecc-slate-700: #3d4a5d;
-      --ecc-slate-500: #6a7687;
-      --ecc-border: #d9dee7;
-      --ecc-success: #236a4b;
-      --ecc-warning: #8a5a13;
-      --ecc-danger: #9a3b3b;
-      --ecc-shadow: 0 20px 55px rgba(7, 28, 61, 0.12);
-      --ecc-sidebar-width: 390px;
+      --ecc-navy-950: #071426;
+      --ecc-navy-900: #0a1d35;
+      --ecc-navy-850: #102640;
+      --ecc-navy-800: #17304f;
+      --ecc-gold: #c9a75f;
+      --ecc-gold-soft: #dcc58d;
+      --ecc-gold-dark: #9f7f3f;
+      --ecc-canvas: #edf0f3;
+      --ecc-panel: #ffffff;
+      --ecc-panel-soft: #f7f8fa;
+      --ecc-border: #d7dde4;
+      --ecc-text: #152233;
+      --ecc-muted: #697586;
+      --ecc-success: #2f7a59;
+      --ecc-warning: #a87820;
+      --ecc-danger: #a84747;
+      --ecc-shadow: 0 16px 40px rgba(8, 24, 43, 0.10);
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    html { min-height: 100%; background: var(--ecc-cloud); }
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
 
     body {
-      min-height: 100vh;
-      margin: 0;
-      color: var(--ecc-navy-950);
-      background:
-        radial-gradient(circle at 85% 0%, rgba(215, 169, 77, 0.12), transparent 28rem),
-        linear-gradient(180deg, #f5f7fa 0%, #e9eef4 100%);
       font-family: "Jost", Arial, sans-serif;
-      line-height: 1.5;
+      background: var(--ecc-canvas);
+      color: var(--ecc-text);
+      overflow-x: hidden;
     }
 
     button,
     input,
-    select { font: inherit; }
+    select {
+      font: inherit;
+    }
 
+    /* Password gate */
     #gateOverlay {
       position: fixed;
       inset: 0;
@@ -59,582 +66,654 @@
       display: none;
       place-items: center;
       padding: 24px;
-      background: rgba(6, 21, 47, 0.92);
-      backdrop-filter: blur(12px);
+      background:
+        linear-gradient(rgba(7, 20, 38, 0.94), rgba(7, 20, 38, 0.97)),
+        radial-gradient(circle at top right, rgba(201, 167, 95, 0.20), transparent 34%);
     }
 
-    #gateOverlay.gate-visible { display: grid; }
+    #gateOverlay.gate-visible {
+      display: grid;
+    }
 
     .gate-panel {
       width: min(460px, 100%);
-      padding: 38px;
-      border: 1px solid rgba(239, 206, 135, 0.45);
-      border-radius: 18px;
-      color: #fff;
-      background: linear-gradient(145deg, var(--ecc-navy-800), var(--ecc-navy-950));
-      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+      padding: 34px;
+      border: 1px solid rgba(220, 197, 141, 0.34);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.98);
+      box-shadow: 0 28px 80px rgba(0,0,0,0.32);
     }
 
     .gate-title {
       margin: 8px 0 10px;
-      font: 500 clamp(2rem, 5vw, 3rem)/1.05 "Bodoni Moda", Georgia, serif;
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 500;
+      color: var(--ecc-navy-900);
     }
 
-    .gate-copy { margin: 0 0 22px; color: #d9e2ef; }
-    .gate-form { display: grid; gap: 12px; }
+    .gate-copy {
+      margin: 0 0 20px;
+      color: var(--ecc-muted);
+    }
+
+    .gate-form {
+      display: grid;
+      gap: 12px;
+    }
 
     .gate-input {
       width: 100%;
       min-height: 48px;
-      padding: 0 14px;
-      border: 1px solid rgba(255,255,255,.28);
-      border-radius: 9px;
-      color: #fff;
-      background: rgba(255,255,255,.08);
-      outline: none;
+      padding: 12px 14px;
+      border: 1px solid var(--ecc-border);
+      border-radius: 2px;
+      background: #fff;
+      color: var(--ecc-text);
     }
 
-    .gate-input:focus { border-color: var(--ecc-gold-300); box-shadow: 0 0 0 3px rgba(239,206,135,.14); }
-    .gate-error { min-height: 1.4em; margin: 12px 0 0; color: #ffd3d3; }
+    .gate-error {
+      min-height: 20px;
+      margin: 12px 0 0;
+      color: var(--ecc-danger);
+      font-size: 0.9rem;
+    }
 
-    .operations-shell.ecc-shell {
-      display: grid;
-      grid-template-columns: var(--ecc-sidebar-width) minmax(0, 1fr);
+    /* ACAD / Business Contracts shell */
+    .ecc-shell {
       min-height: 100vh;
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: 0;
+      display: grid;
+      grid-template-columns: 30% 70%;
+      background: var(--ecc-canvas);
     }
 
     .ecc-sidebar {
       position: sticky;
       top: 0;
       height: 100vh;
+      display: flex;
+      flex-direction: column;
       overflow-y: auto;
-      padding: 28px 24px 24px;
-      color: #fff;
+      padding: 32px 30px 24px;
+      color: #f7f8fb;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.025), transparent 22%),
-        linear-gradient(160deg, var(--ecc-navy-800) 0%, var(--ecc-navy-950) 78%);
-      border-right: 1px solid rgba(239, 206, 135, 0.22);
-      box-shadow: 18px 0 50px rgba(6, 21, 47, 0.15);
-      scrollbar-width: thin;
-      scrollbar-color: rgba(239,206,135,.45) transparent;
+        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 24%),
+        linear-gradient(180deg, var(--ecc-navy-900), var(--ecc-navy-950));
+      border-right: 1px solid rgba(201,167,95,0.32);
+      box-shadow: 14px 0 42px rgba(6, 18, 33, 0.18);
     }
 
-    .ecc-sidebar-brand {
-      padding: 4px 6px 23px;
-      border-bottom: 1px solid rgba(255,255,255,.14);
+    .ecc-brand {
+      padding-bottom: 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
     }
 
     .ecc-brand-mark {
-      display: inline-grid;
-      place-items: center;
-      width: 46px;
-      height: 46px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       margin-bottom: 18px;
-      border: 1px solid var(--ecc-gold-500);
-      border-radius: 50%;
-      color: var(--ecc-gold-300);
-      font: 500 1rem/1 "Bodoni Moda", Georgia, serif;
-      letter-spacing: .1em;
+      color: var(--ecc-gold);
+      font-size: 0.73rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
     }
 
-    .ecc-sidebar-brand .eyebrow,
-    .ecc-workspace .eyebrow,
+    .ecc-brand-mark::before {
+      content: "";
+      width: 31px;
+      height: 2px;
+      background: var(--ecc-gold);
+    }
+
+    .ecc-eyebrow,
     .section-kicker {
       margin: 0;
-      color: var(--ecc-gold-500);
-      font-size: .69rem;
+      color: var(--ecc-gold);
+      font-size: 0.68rem;
       font-weight: 600;
-      letter-spacing: .18em;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
     }
 
-    .ecc-sidebar-brand h1 {
-      margin: 8px 0 6px;
-      color: #fff;
-      font: 500 2rem/1.06 "Bodoni Moda", Georgia, serif;
+    .ecc-brand h1 {
+      margin: 10px 0 8px;
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: clamp(2rem, 3.1vw, 3.15rem);
+      line-height: 1.03;
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      color: #ffffff;
     }
 
-    .ecc-sidebar-brand .subtitle {
+    .ecc-brand p:last-child {
       margin: 0;
-      color: #c8d2e0;
-      font-size: .92rem;
-      letter-spacing: .04em;
+      color: #aeb9c7;
+      font-size: 0.88rem;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
     }
 
-    .ecc-command-primary {
-      margin-top: 24px;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      box-shadow: none;
+    .ecc-launch-section {
+      padding: 28px 0 20px;
     }
 
-    .ecc-command-primary .panel-heading {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
+    .ecc-sidebar-heading {
       margin-bottom: 18px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid rgba(255,255,255,.14);
     }
 
-    .ecc-command-primary h2 {
-      margin: 5px 0 0;
+    .ecc-sidebar-heading h2 {
+      margin: 7px 0 0;
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: 1.7rem;
+      font-weight: 500;
       color: #fff;
-      font: 500 1.55rem/1.1 "Bodoni Moda", Georgia, serif;
     }
 
-    .ecc-launch { display: grid; gap: 15px; }
+    .ecc-launch {
+      display: grid;
+      gap: 15px;
+    }
 
     .ecc-launch label {
       display: grid;
       gap: 7px;
-      color: #d5deea;
-      font-size: .74rem;
+      color: #c7d0db;
+      font-size: 0.76rem;
       font-weight: 500;
-      letter-spacing: .08em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
     .ecc-launch select,
-    .ecc-launch input[type="text"] {
+    .ecc-launch input {
       width: 100%;
       min-height: 46px;
-      padding: 0 13px;
-      border: 1px solid rgba(255,255,255,.2);
-      border-radius: 8px;
-      color: #f8fafc;
-      background: rgba(255,255,255,.075);
+      padding: 11px 13px;
+      border: 1px solid rgba(255,255,255,0.16);
+      border-radius: 2px;
       outline: none;
-      text-transform: none;
-      letter-spacing: 0;
+      color: #f7f9fb;
+      background: rgba(255,255,255,0.065);
+      transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
     }
 
-    .ecc-launch select { color-scheme: dark; }
-    .ecc-launch select option { color: #111827; background: #fff; }
+    .ecc-launch select {
+      color-scheme: dark;
+    }
+
+    .ecc-launch select option {
+      color: #132237;
+      background: #fff;
+    }
+
+    .ecc-launch input[readonly] {
+      color: #d6dce4;
+      background: rgba(255,255,255,0.035);
+    }
 
     .ecc-launch select:focus,
-    .ecc-launch input[type="text"]:focus {
-      border-color: var(--ecc-gold-300);
-      box-shadow: 0 0 0 3px rgba(239,206,135,.12);
+    .ecc-launch input:focus {
+      border-color: var(--ecc-gold);
+      background: rgba(255,255,255,0.09);
+      box-shadow: 0 0 0 3px rgba(201,167,95,0.12);
     }
 
-    .ecc-task-configuration:empty { display: none; }
+    .ecc-task-configuration {
+      display: grid;
+      gap: 14px;
+    }
 
-    .primary-action.ecc-execute,
-    .primary-action.gate-submit {
+    .primary-action {
       min-height: 48px;
-      border: 1px solid var(--ecc-gold-300);
-      border-radius: 8px;
-      color: var(--ecc-navy-950);
-      background: linear-gradient(135deg, var(--ecc-gold-300), var(--ecc-gold-500));
-      box-shadow: 0 12px 28px rgba(215,169,77,.2);
+      padding: 12px 18px;
+      border: 1px solid var(--ecc-gold);
+      border-radius: 2px;
       cursor: pointer;
+      color: var(--ecc-navy-950);
+      background: linear-gradient(180deg, var(--ecc-gold-soft), var(--ecc-gold));
       font-weight: 600;
-      letter-spacing: .12em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      transition: transform .18s ease, filter .18s ease, box-shadow .18s ease;
+      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
     }
 
-    .primary-action:hover { transform: translateY(-1px); filter: brightness(1.04); box-shadow: 0 16px 32px rgba(215,169,77,.28); }
+    .primary-action:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(201,167,95,0.22);
+      filter: brightness(1.035);
+    }
+
+    .primary-action:active {
+      transform: translateY(0);
+    }
 
     .ecc-message {
+      min-height: 44px;
       margin: 15px 0 0;
       padding: 12px 13px;
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 8px;
-      color: #c9d4e2;
-      background: rgba(255,255,255,.045);
-      font-size: .84rem;
+      border-left: 2px solid var(--ecc-gold);
+      color: #b9c4d1;
+      background: rgba(255,255,255,0.045);
+      font-size: 0.85rem;
+      line-height: 1.45;
     }
 
-    .ecc-sidebar-status {
-      margin-top: 24px;
-      padding: 16px;
-      border: 1px solid rgba(239,206,135,.2);
-      border-radius: 10px;
-      background: rgba(255,255,255,.04);
-    }
-
-    .ecc-sidebar-status strong {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--ecc-gold-300);
-      font-size: .74rem;
-      letter-spacing: .12em;
+    .ecc-sidebar-footer {
+      margin-top: auto;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      color: #8492a3;
+      font-size: 0.72rem;
+      line-height: 1.6;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    .ecc-sidebar-status span { color: #c8d2e0; font-size: .82rem; }
-
-    .ecc-workspace {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
+    .ecc-sidebar-footer strong {
+      display: block;
+      margin-bottom: 3px;
+      color: #d9e0e7;
+      font-size: 0.77rem;
     }
 
-    .command-header.ecc-header {
-      position: relative;
+    /* 70% workspace */
+    .ecc-workspace {
+      min-width: 0;
+      padding: 32px 36px 28px;
+    }
+
+    .ecc-workspace-header {
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
       gap: 24px;
-      min-height: 172px;
-      padding: 40px clamp(28px, 4vw, 64px) 30px;
-      color: var(--ecc-navy-950);
-      background:
-        linear-gradient(90deg, rgba(255,255,255,.94), rgba(247,243,233,.88)),
-        radial-gradient(circle at 85% 10%, rgba(215,169,77,.18), transparent 28rem);
-      border-bottom: 1px solid var(--ecc-border);
+      margin-bottom: 26px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #cfd6df;
     }
 
-    .command-header.ecc-header::after {
-      content: "";
-      position: absolute;
-      left: clamp(28px, 4vw, 64px);
-      right: clamp(28px, 4vw, 64px);
-      bottom: 0;
-      height: 3px;
-      background: linear-gradient(90deg, var(--ecc-gold-500), transparent 55%);
+    .ecc-workspace-header h2 {
+      margin: 6px 0 0;
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: clamp(2.05rem, 3.2vw, 3.45rem);
+      line-height: 1.02;
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      color: var(--ecc-navy-900);
     }
 
-    .ecc-header h2 {
-      margin: 8px 0 4px;
-      font: 500 clamp(2.25rem, 4vw, 4.35rem)/.98 "Bodoni Moda", Georgia, serif;
-      letter-spacing: -.035em;
-    }
-
-    .ecc-header .subtitle { margin: 0; color: var(--ecc-slate-500); font-size: 1rem; }
-
-    .ecc-header-meta {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 10px;
-    }
-
-    .ecc-meta-chip {
-      padding: 8px 12px;
-      border: 1px solid #cfd6e0;
-      border-radius: 999px;
-      color: var(--ecc-navy-800);
-      background: rgba(255,255,255,.72);
-      font-size: .7rem;
-      font-weight: 600;
-      letter-spacing: .1em;
-      text-transform: uppercase;
+    .ecc-workspace-header p:last-child {
+      max-width: 520px;
+      margin: 0;
+      color: var(--ecc-muted);
+      text-align: right;
+      font-size: 0.92rem;
+      line-height: 1.55;
     }
 
     .ecc-main {
-      flex: 1;
-      display: block;
-      padding: clamp(24px, 3.5vw, 52px) clamp(24px, 4vw, 64px) 34px;
-    }
-
-    .ecc-right-column {
       display: grid;
-      gap: 28px;
-      width: 100%;
+      gap: 24px;
     }
 
-    .panel.ecc-inventory-panel,
-    .panel.ecc-monitor-panel {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid rgba(7, 28, 61, 0.11);
-      border-radius: 14px;
-      background: rgba(255, 253, 248, 0.94);
+    .panel {
+      border: 1px solid var(--ecc-border);
+      border-radius: 3px;
+      background: var(--ecc-panel);
       box-shadow: var(--ecc-shadow);
     }
 
-    .panel.ecc-inventory-panel::before,
-    .panel.ecc-monitor-panel::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 4px;
-      background: linear-gradient(180deg, var(--ecc-gold-500), var(--ecc-navy-700));
+    .ecc-inventory-panel,
+    .ecc-monitor-panel {
+      overflow: hidden;
     }
 
-    .panel-heading.ecc-inventory-heading,
-    .panel-heading.ecc-monitor-heading {
+    .panel-heading {
       display: flex;
-      align-items: flex-end;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 20px;
-      padding: 25px 28px 20px 32px;
+      gap: 18px;
+      padding: 23px 25px 20px;
       border-bottom: 1px solid var(--ecc-border);
-      background: linear-gradient(90deg, rgba(247,243,233,.78), rgba(255,255,255,.85));
+      background: linear-gradient(180deg, #fff, #fafbfc);
     }
 
     .panel-heading h2 {
       margin: 5px 0 0;
-      color: var(--ecc-navy-950);
-      font: 500 clamp(1.55rem, 2.5vw, 2.15rem)/1.1 "Bodoni Moda", Georgia, serif;
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: 1.85rem;
+      font-weight: 500;
+      color: var(--ecc-navy-900);
     }
 
     .ecc-inventory-updated,
     .ecc-updated {
-      color: var(--ecc-slate-500);
-      font-size: .76rem;
-      letter-spacing: .04em;
+      color: var(--ecc-muted);
+      font-size: 0.76rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
     }
 
-    .ecc-inventory-table-wrap { overflow-x: auto; padding: 6px 28px 28px 32px; }
+    .ecc-inventory-table-wrap {
+      overflow-x: auto;
+      padding: 0 25px 25px;
+    }
 
     .ecc-inventory-table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 680px;
+      min-width: 650px;
     }
 
     .ecc-inventory-table th,
     .ecc-inventory-table td {
       padding: 18px 15px;
-      border-bottom: 1px solid #e3e7ed;
+      border-bottom: 1px solid #e4e8ed;
       text-align: left;
       vertical-align: middle;
     }
 
     .ecc-inventory-table thead th {
-      color: var(--ecc-slate-500);
-      font-size: .68rem;
+      padding-top: 21px;
+      color: #758091;
+      font-size: 0.7rem;
       font-weight: 600;
-      letter-spacing: .13em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
-    .ecc-inventory-table tbody th { color: var(--ecc-navy-800); font-weight: 600; }
-
-    .ecc-inventory-count {
-      color: var(--ecc-navy-950);
-      font: 500 2rem/1 "Bodoni Moda", Georgia, serif;
+    .ecc-inventory-table tbody th {
+      color: var(--ecc-navy-850);
+      font-size: 0.95rem;
+      font-weight: 600;
     }
 
-    .ecc-inventory-source { color: var(--ecc-slate-700); }
+    .ecc-inventory-count {
+      color: var(--ecc-navy-900);
+      font-family: "Bodoni Moda", Georgia, serif;
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    .ecc-inventory-source {
+      color: var(--ecc-muted);
+      font-size: 0.88rem;
+    }
 
     .ecc-inventory-status {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      min-width: 78px;
-      padding: 6px 10px;
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid #d7dde4;
       border-radius: 999px;
-      font-size: .67rem;
+      color: #596575;
+      background: #f4f6f8;
+      font-size: 0.7rem;
       font-weight: 600;
-      letter-spacing: .08em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    .ecc-loading { color: var(--ecc-warning); background: #fff3d8; border: 1px solid #ead39c; }
+    .ecc-inventory-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      margin-right: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .ecc-loading {
+      color: var(--ecc-warning);
+      background: #fff9ea;
+      border-color: #ead8a7;
+    }
 
     .ecc-task-force-monitor {
-      min-height: 290px;
-      padding: 26px 32px 32px;
+      min-height: 315px;
+      padding: 24px 25px 28px;
+      background:
+        linear-gradient(rgba(10,29,53,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(10,29,53,0.025) 1px, transparent 1px);
+      background-size: 28px 28px;
     }
 
     .ecc-empty {
       display: grid;
       place-items: center;
-      min-height: 210px;
+      min-height: 250px;
       margin: 0;
-      border: 1px dashed #cbd3df;
-      border-radius: 11px;
-      color: var(--ecc-slate-500);
-      background: linear-gradient(135deg, rgba(238,242,246,.65), rgba(255,255,255,.65));
+      border: 1px dashed #c8d0da;
+      color: #7b8796;
+      background: rgba(255,255,255,0.78);
       text-align: center;
+      font-size: 0.92rem;
     }
 
-    .ecc-workspace footer {
+    .ecc-workspace-footer {
       display: flex;
       justify-content: space-between;
       gap: 20px;
-      padding: 17px clamp(24px, 4vw, 64px) 22px;
-      color: var(--ecc-slate-500);
-      font-size: .72rem;
-      letter-spacing: .08em;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid #d0d6de;
+      color: #7b8694;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    @media (max-width: 1100px) {
-      :root { --ecc-sidebar-width: 340px; }
-      .command-header.ecc-header { align-items: flex-start; flex-direction: column; }
-      .ecc-header-meta { justify-content: flex-start; }
+    @media (max-width: 1050px) {
+      .ecc-shell {
+        grid-template-columns: 36% 64%;
+      }
+
+      .ecc-sidebar {
+        padding-left: 23px;
+        padding-right: 23px;
+      }
+
+      .ecc-workspace {
+        padding: 27px 24px 24px;
+      }
+
+      .ecc-workspace-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .ecc-workspace-header p:last-child {
+        text-align: left;
+      }
     }
 
-    @media (max-width: 850px) {
-      .operations-shell.ecc-shell { display: block; }
+    @media (max-width: 780px) {
+      .ecc-shell {
+        display: block;
+      }
+
       .ecc-sidebar {
         position: relative;
         width: 100%;
         height: auto;
-        max-height: none;
-        padding: 24px;
+        min-height: auto;
+        padding: 26px 22px;
       }
-      .ecc-sidebar-brand h1 { font-size: 1.8rem; }
-      .command-header.ecc-header { min-height: auto; padding-top: 30px; }
-      .ecc-main { padding: 22px 18px 28px; }
-      .ecc-workspace footer { flex-direction: column; }
+
+      .ecc-sidebar-footer {
+        margin-top: 28px;
+      }
+
+      .ecc-workspace {
+        padding: 24px 16px 22px;
+      }
+
+      .panel-heading {
+        padding: 20px 18px 17px;
+      }
+
+      .ecc-inventory-table-wrap,
+      .ecc-task-force-monitor {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .ecc-workspace-footer {
+        flex-direction: column;
+      }
     }
 
-    @media (max-width: 560px) {
-      .panel-heading.ecc-inventory-heading,
-      .panel-heading.ecc-monitor-heading { align-items: flex-start; flex-direction: column; padding: 22px; }
-      .ecc-inventory-table-wrap { padding: 4px 18px 22px; }
-      .ecc-task-force-monitor { padding: 20px; }
-      .ecc-header h2 { font-size: 2.35rem; }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition: none !important;
+      }
     }
   </style>
 </head>
+
 <body>
-<div id="gateOverlay" class="gate-visible">
-  <div class="panel gate-panel">
-    <p class="section-kicker">AUTHORIZATION REQUIRED</p>
-    <h2 class="gate-title">Executive Command Center</h2>
-    <p class="gate-copy">Internal APROPOS operations. Enter the access password to continue.</p>
-    <form id="gateForm" class="gate-form">
-      <input id="gatePassword" type="password" autocomplete="off" placeholder="Password" class="gate-input">
-      <button class="primary-action gate-submit" type="submit">Enter</button>
-    </form>
-    <p id="gateError" class="gate-error"></p>
-  </div>
-</div>
-
-<div class="operations-shell ecc-shell">
-  <aside class="ecc-sidebar" aria-label="Task Force launch controls">
-    <div class="ecc-sidebar-brand">
-      <div class="ecc-brand-mark" aria-hidden="true">AG</div>
-      <p class="eyebrow">APROPOS INTELLIGENCE OPERATING SYSTEM</p>
-      <h1>Executive Command Center</h1>
-      <p class="subtitle">Command authority and mission launch control.</p>
+  <div id="gateOverlay" class="gate-visible">
+    <div class="panel gate-panel">
+      <p class="section-kicker">AUTHORIZATION REQUIRED</p>
+      <h2 class="gate-title">Executive Command Center</h2>
+      <p class="gate-copy">Internal APROPOS operations. Enter the access password to continue.</p>
+      <form id="gateForm" class="gate-form">
+        <input id="gatePassword" type="password" autocomplete="off" placeholder="Password" class="gate-input">
+        <button class="primary-action gate-submit" type="submit">Enter</button>
+      </form>
+      <p id="gateError" class="gate-error"></p>
     </div>
+  </div>
 
-    <section class="panel ecc-command-primary" aria-labelledby="taskExecutionHeading">
-      <div class="panel-heading">
-        <div>
+  <div class="ecc-shell">
+    <aside class="ecc-sidebar" aria-label="Launch Task Force command panel">
+      <div class="ecc-brand">
+        <div class="ecc-brand-mark">APROPOS GROUP LLC</div>
+        <p class="ecc-eyebrow">APROPOS INTELLIGENCE OPERATING SYSTEM</p>
+        <h1>Executive<br>Command Center</h1>
+        <p>Command. Monitor. Review.</p>
+      </div>
+
+      <section class="ecc-launch-section" aria-labelledby="taskExecutionHeading">
+        <div class="ecc-sidebar-heading">
           <p class="section-kicker">TASK EXECUTION</p>
           <h2 id="taskExecutionHeading">Launch Task Force</h2>
         </div>
+
+        <form id="eccLaunchForm" class="ecc-launch">
+          <label>
+            Task
+            <select id="eccMissionType" required="">
+<option value="">Select task</option>
+<option value="PUBLISHER_DISCOVERY">Publisher Discovery</option>
+<option value="VERIFY_PUBLISHER_CONNECTION">Verify Publisher Connection</option>
+<option value="ACQUISITION_DISCOVERY">Acquisition Discovery</option>
+<option value="CONTRACT_PACKAGE_ACQUISITION">Complete Contract Packages</option>
+<option value="STATE_MISSION">State Operations</option>
+<option value="AADP_PROCESSING">AADP Processing</option>
+<option value="AOIE_ANALYSIS">AOIE Analysis</option>
+<option value="PROCUREMENT_INVENTORY">Procurement Inventory Maintenance</option>
+<option value="CONTRACT_LIFECYCLE">Contract Lifecycle</option>
+<option value="BUSINESS_DEVELOPMENT_DISCOVERY">Business Development Discovery</option>
+<option value="OPPORTUNITY_PARTNER_DISCOVERY">Opportunity Partner Discovery</option>
+<option value="INSTITUTIONAL_BUYER_DISCOVERY">Institutional Buyer Discovery</option>
+</select>
+          </label>
+
+          <label>
+            State
+            <select id="eccMissionState" required="">
+<option value="">Select state</option>
+<option value="ALL">All States</option>
+<option value="AL">Alabama</option>
+<option value="AK">Alaska</option>
+<option value="AZ">Arizona</option>
+<option value="AR">Arkansas</option>
+<option value="CA">California</option>
+<option value="CO">Colorado</option>
+<option value="CT">Connecticut</option>
+<option value="DE">Delaware</option>
+<option value="FL">Florida</option>
+<option value="GA">Georgia</option>
+<option value="HI">Hawaii</option>
+<option value="ID">Idaho</option>
+<option value="IL">Illinois</option>
+<option value="IN">Indiana</option>
+<option value="IA">Iowa</option>
+<option value="KS">Kansas</option>
+<option value="KY">Kentucky</option>
+<option value="LA">Louisiana</option>
+<option value="ME">Maine</option>
+<option value="MD">Maryland</option>
+<option value="MA">Massachusetts</option>
+<option value="MI">Michigan</option>
+<option value="MN">Minnesota</option>
+<option value="MS">Mississippi</option>
+<option value="MO">Missouri</option>
+<option value="MT">Montana</option>
+<option value="NE">Nebraska</option>
+<option value="NV">Nevada</option>
+<option value="NH">New Hampshire</option>
+<option value="NJ">New Jersey</option>
+<option value="NM">New Mexico</option>
+<option value="NY">New York</option>
+<option value="NC">North Carolina</option>
+<option value="ND">North Dakota</option>
+<option value="OH">Ohio</option>
+<option value="OK">Oklahoma</option>
+<option value="OR">Oregon</option>
+<option value="PA">Pennsylvania</option>
+<option value="RI">Rhode Island</option>
+<option value="SC">South Carolina</option>
+<option value="SD">South Dakota</option>
+<option value="TN">Tennessee</option>
+<option value="TX">Texas</option>
+<option value="UT">Utah</option>
+<option value="VT">Vermont</option>
+<option value="VA">Virginia</option>
+<option value="WA">Washington</option>
+<option value="WV">West Virginia</option>
+<option value="WI">Wisconsin</option>
+<option value="WY">Wyoming</option>
+</select>
+          </label>
+
+          <div id="eccTaskConfiguration" class="ecc-task-configuration" aria-live="polite"></div>
+
+          <label>
+            Execution Agent
+            <input id="eccAgentDisplay" type="text" value="Select a task" readonly>
+            <input id="eccAgent" type="hidden" value="">
+          </label>
+
+          <button type="submit" class="primary-action ecc-execute">EXECUTE</button>
+        </form>
+
+        <p id="eccLaunchMessage" class="ecc-message">Select a task and operating scope.</p>
+      </section>
+
+      <div class="ecc-sidebar-footer">
+        <strong>Internal Controlled System</strong>
+        Executive Mission Control<br>
+        APROPOS GROUP LLC
       </div>
+    </aside>
 
-      <form id="eccLaunchForm" class="ecc-launch">
-        <label>
-          Task
-          <select id="eccMissionType" required>
-            <option value="">Select task</option>
-            <option value="PUBLISHER_DISCOVERY">Publisher Discovery</option>
-            <option value="VERIFY_PUBLISHER_CONNECTION">Verify Publisher Connection</option>
-            <option value="ACQUISITION_DISCOVERY">Acquisition Discovery</option>
-            <option value="CONTRACT_PACKAGE_ACQUISITION">Complete Contract Packages</option>
-            <option value="STATE_MISSION">State Operations</option>
-            <option value="AADP_PROCESSING">AADP Processing</option>
-            <option value="AOIE_ANALYSIS">AOIE Analysis</option>
-            <option value="PROCUREMENT_INVENTORY">Procurement Inventory Maintenance</option>
-            <option value="CONTRACT_LIFECYCLE">Contract Lifecycle</option>
-            <option value="BUSINESS_DEVELOPMENT_DISCOVERY">Business Development Discovery</option>
-            <option value="OPPORTUNITY_PARTNER_DISCOVERY">Opportunity Partner Discovery</option>
-            <option value="INSTITUTIONAL_BUYER_DISCOVERY">Institutional Buyer Discovery</option>
-          </select>
-        </label>
+    <section class="ecc-workspace">
+      <header class="ecc-workspace-header">
+        <div>
+          <p class="section-kicker">EXECUTIVE OPERATIONS</p>
+          <h2>Procurement Intelligence Command</h2>
+        </div>
+        <p>Monitor procurement inventory, active task-force execution, and system-level operational activity from one controlled workspace.</p>
+      </header>
 
-        <label>
-          State
-          <select id="eccMissionState" required>
-            <option value="">Select state</option>
-            <option value="ALL">All States</option>
-            <option value="AL">Alabama</option>
-            <option value="AK">Alaska</option>
-            <option value="AZ">Arizona</option>
-            <option value="AR">Arkansas</option>
-            <option value="CA">California</option>
-            <option value="CO">Colorado</option>
-            <option value="CT">Connecticut</option>
-            <option value="DE">Delaware</option>
-            <option value="FL">Florida</option>
-            <option value="GA">Georgia</option>
-            <option value="HI">Hawaii</option>
-            <option value="ID">Idaho</option>
-            <option value="IL">Illinois</option>
-            <option value="IN">Indiana</option>
-            <option value="IA">Iowa</option>
-            <option value="KS">Kansas</option>
-            <option value="KY">Kentucky</option>
-            <option value="LA">Louisiana</option>
-            <option value="ME">Maine</option>
-            <option value="MD">Maryland</option>
-            <option value="MA">Massachusetts</option>
-            <option value="MI">Michigan</option>
-            <option value="MN">Minnesota</option>
-            <option value="MS">Mississippi</option>
-            <option value="MO">Missouri</option>
-            <option value="MT">Montana</option>
-            <option value="NE">Nebraska</option>
-            <option value="NV">Nevada</option>
-            <option value="NH">New Hampshire</option>
-            <option value="NJ">New Jersey</option>
-            <option value="NM">New Mexico</option>
-            <option value="NY">New York</option>
-            <option value="NC">North Carolina</option>
-            <option value="ND">North Dakota</option>
-            <option value="OH">Ohio</option>
-            <option value="OK">Oklahoma</option>
-            <option value="OR">Oregon</option>
-            <option value="PA">Pennsylvania</option>
-            <option value="RI">Rhode Island</option>
-            <option value="SC">South Carolina</option>
-            <option value="SD">South Dakota</option>
-            <option value="TN">Tennessee</option>
-            <option value="TX">Texas</option>
-            <option value="UT">Utah</option>
-            <option value="VT">Vermont</option>
-            <option value="VA">Virginia</option>
-            <option value="WA">Washington</option>
-            <option value="WV">West Virginia</option>
-            <option value="WI">Wisconsin</option>
-            <option value="WY">Wyoming</option>
-          </select>
-        </label>
-
-        <div id="eccTaskConfiguration" class="ecc-task-configuration" aria-live="polite"></div>
-
-        <label>
-          Execution Agent
-          <input id="eccAgentDisplay" type="text" value="Select a task" readonly>
-          <input id="eccAgent" type="hidden" value="">
-        </label>
-
-        <button type="submit" class="primary-action ecc-execute">Execute Mission</button>
-      </form>
-
-      <p id="eccLaunchMessage" class="ecc-message">Select a task and operating scope.</p>
-    </section>
-
-    <div class="ecc-sidebar-status">
-      <strong>Operating Posture</strong>
-      <span>Internal controlled system · Authorized executive operations only</span>
-    </div>
-  </aside>
-
-  <div class="ecc-workspace">
-    <header class="command-header ecc-header">
-      <div>
-        <p class="eyebrow">EXECUTIVE MISSION CONTROL</p>
-        <h2>Procurement Operations</h2>
-        <p class="subtitle">Monitor inventory, active task forces, and system execution from one command view.</p>
-      </div>
-      <div class="ecc-header-meta" aria-label="System classifications">
-        <span class="ecc-meta-chip">Internal Controlled System</span>
-        <span class="ecc-meta-chip">Executive Access</span>
-      </div>
-    </header>
-
-    <main class="ecc-main">
-      <div class="ecc-right-column">
+      <main class="ecc-main">
         <section class="panel ecc-inventory-panel" aria-labelledby="inventoryHeading">
           <div class="panel-heading ecc-inventory-heading">
             <div>
@@ -650,7 +729,7 @@
                 <tr>
                   <th scope="col">Inventory</th>
                   <th scope="col">Current Count</th>
-                  <th scope="col">Operational Detail</th>
+                  <th scope="col">Detail</th>
                   <th scope="col">Status</th>
                 </tr>
               </thead>
@@ -680,24 +759,24 @@
             </div>
             <small id="eccUpdated" class="ecc-updated">Waiting for status</small>
           </div>
+
           <div id="eccTaskForceMonitor" class="ecc-task-force-monitor" aria-live="polite">
             <p class="ecc-empty">No Task Force Instances are available.</p>
           </div>
         </section>
-      </div>
-    </main>
+      </main>
 
-    <footer>
-      <span>APROPOS GROUP LLC</span>
-      <span>Executive Mission Control · Internal Controlled System</span>
-    </footer>
+      <footer class="ecc-workspace-footer">
+        <span>APROPOS GROUP LLC</span>
+        <span>Executive Mission Control · Internal Controlled System</span>
+      </footer>
+    </section>
   </div>
-</div>
 
-<script src="assets/runtime-config.js"></script>
-<script src="assets/executive-core.js" defer></script>
-<script src="assets/executive-command-center.js" defer></script>
-<script src="assets/executive-launch.js" defer></script>
-<script src="assets/executive-dashboard-inventory.js" defer></script>
+  <script src="assets/runtime-config.js"></script>
+  <script src="assets/executive-core.js" defer></script>
+  <script src="assets/executive-command-center.js" defer></script>
+  <script src="assets/executive-launch.js" defer></script>
+  <script src="assets/executive-dashboard-inventory.js" defer></script>
 </body>
 </html>
