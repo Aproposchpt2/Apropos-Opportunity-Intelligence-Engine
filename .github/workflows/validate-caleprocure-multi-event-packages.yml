@@ -1,0 +1,38 @@
+name: Validate Cal eProcure Multi-Event Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/validate-caleprocure-multi-event-packages.mjs
+      - .github/workflows/validate-caleprocure-multi-event-packages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Validate three Cal eProcure event packages
+        run: node scripts/validate-caleprocure-multi-event-packages.mjs
+      - name: Build artifact inventory
+        if: always()
+        run: |
+          mkdir -p artifacts/caleprocure-multi-event-validation
+          find artifacts/caleprocure-multi-event-validation -type f -printf '%s %p\n' | sort -n | tee artifacts/caleprocure-multi-event-validation/inventory.txt || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caleprocure-multi-event-validation
+          path: artifacts/caleprocure-multi-event-validation
+          if-no-files-found: error
+          retention-days: 7
