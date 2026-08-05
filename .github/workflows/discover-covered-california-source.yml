@@ -1,0 +1,38 @@
+name: Discover Covered California Source of Truth
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/discover-covered-california-source.mjs
+      - .github/workflows/discover-covered-california-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install document inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils unzip
+      - name: Acquire and validate Covered California packages
+        run: node scripts/discover-covered-california-source.mjs
+      - name: Build artifact inventory
+        if: always()
+        run: |
+          mkdir -p artifacts/covered-california-source-truth
+          find artifacts/covered-california-source-truth -type f -printf '%s %p\n' | sort -n | tee artifacts/covered-california-source-truth/inventory.txt || true
+      - name: Upload Source-of-Truth evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: covered-california-source-truth
+          path: artifacts/covered-california-source-truth
+          if-no-files-found: error
+          retention-days: 14
