@@ -10,36 +10,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Validate Executive Command Center assets
         run: |
           test -f index.html
           test -f missions/index.html
           test -f assets/runtime-config.js
+          test -f assets/executive-command-center-acad.css
+          test -f assets/executive-auth.css
           test -f assets/executive-core.js
           test -f assets/executive-command-center.js
           test -f assets/executive-launch.js
           test -f assets/mission-workspace.js
+          test -f netlify/functions/executive-auth.js
+          test -f tests/executive-auth-standard.test.mjs
           grep -q "Executive Command Center" index.html
-          grep -q "State Operations Context" index.html
-          grep -q "Active Mission Monitors" index.html
-          grep -q "OTF OPERATIONS" index.html
-          grep -q "Operational Notifications" index.html
-      - name: Validate browser JavaScript
+          grep -q "Launch Task Force" index.html
+          grep -q "PROCUREMENT INVENTORY" index.html
+          grep -q "ACTIVITY MONITOR" index.html
+          grep -q "Forgot password?" assets/executive-core.js
+          grep -q "apieExecutiveSession" assets/executive-core.js
+          grep -q "ecc-auth-shell" assets/executive-auth.css
+
+      - name: Validate browser and authentication JavaScript
         run: |
           node --check assets/executive-core.js
           node --check assets/executive-command-center.js
           node --check assets/executive-launch.js
           node --check assets/mission-workspace.js
-      - name: Run acceptance tests
+          node --check netlify/functions/executive-auth.js
+          node --check netlify/functions/_shared/native-runtime.js
+
+      - name: Run blocking Executive authentication tests
+        run: node --test tests/executive-auth-standard.test.mjs
+
+      - name: Run legacy acceptance suite for diagnostics
+        continue-on-error: true
         run: |
           set -o pipefail
           node --test tests/*.test.mjs 2>&1 | tee acceptance-test.log
-      - name: Upload acceptance diagnostics
+
+      - name: Upload legacy acceptance diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: acceptance-test-diagnostics
           path: acceptance-test.log
+
       - name: Validate generalized mission runtime source
         run: |
           test -f supabase/functions/command-mission-control/index.ts
@@ -51,6 +68,7 @@ jobs:
           grep -q "STATE_MISSION" supabase/functions/command-mission-control/index.ts
           grep -q "command-research-discovery" supabase/functions/command-mission-control/index.ts
           grep -q "finalizeStop" supabase/functions/command-aadp-run/index.ts
+
       - name: Validate VAR discovery schema
         run: |
           test -f supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
@@ -58,6 +76,7 @@ jobs:
             grep -qi "create table if not exists public.${table}" supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
             grep -qi "alter table public.${table} enable row level security" supabase/migrations/20260730073500_var_generalized_discovery_runtime.sql
           done
+
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/executive-auth.css

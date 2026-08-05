@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export function env(name) {
   try {
@@ -44,7 +44,72 @@ export function parseBody(event) {
   catch { return {}; }
 }
 
+function sessionSecret() {
+  return String(env('EXECUTIVE_SESSION_SECRET') || env('EXECUTIVE_AUTH_HASH') || '').trim();
+}
+
+function operatorEmail() {
+  return String(env('EXECUTIVE_OPERATOR_EMAIL') || 'jmitchell@aproposgroupllc.com').trim().toLowerCase();
+}
+
+function safeEqualText(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function issueDashboardToken(user, ttlSeconds = 8 * 60 * 60) {
+  const secret = sessionSecret();
+  if (secret.length < 32) throw new Error('Executive session configuration incomplete');
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    v: 1,
+    sub: String(user?.id || user?.sub || ''),
+    email: String(user?.email || '').trim().toLowerCase(),
+    iat: now,
+    exp: now + Math.max(300, Number(ttlSeconds) || 0)
+  };
+
+  if (!payload.sub || !payload.email || payload.email !== operatorEmail()) {
+    throw new Error('Executive operator identity is not authorized');
+  }
+
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = createHmac('sha256', secret).update(encoded).digest('base64url');
+  return `ecc1.${encoded}.${signature}`;
+}
+
+export function verifyDashboardToken(token) {
+  try {
+    const secret = sessionSecret();
+    if (secret.length < 32) return null;
+
+    const [version, encoded, suppliedSignature, extra] = String(token || '').split('.');
+    if (version !== 'ecc1' || !encoded || !suppliedSignature || extra) return null;
+
+    const expectedSignature = createHmac('sha256', secret).update(encoded).digest('base64url');
+    if (!safeEqualText(suppliedSignature, expectedSignature)) return null;
+
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    const email = String(payload?.email || '').trim().toLowerCase();
+
+    if (payload?.v !== 1 || !payload?.sub || !Number.isFinite(payload?.exp) || payload.exp <= now) return null;
+    if (!email || email !== operatorEmail()) return null;
+
+    return { ...payload, email };
+  } catch {
+    return null;
+  }
+}
+
 export function requireDashboardAuth(event) {
+  const authorization = String(header(event, 'authorization') || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
+  if (bearer && verifyDashboardToken(bearer)) return true;
+
+  // Temporary compatibility path for the former shared-password gate.
   const supplied = header(event, 'x-dashboard-password');
   const storedHash = env('EXECUTIVE_AUTH_HASH');
   if (!supplied || !/^[0-9a-f]{64}$/i.test(storedHash)) return false;
