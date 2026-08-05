@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - mission-report-truth-correction-002
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
