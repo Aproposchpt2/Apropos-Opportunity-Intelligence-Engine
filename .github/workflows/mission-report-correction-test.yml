@@ -13,11 +13,20 @@ permissions:
 
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref:
+          - main
+          - mission-report-truth-correction-002
+    name: test-${{ matrix.ref }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
