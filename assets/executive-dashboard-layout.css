@@ -1,0 +1,160 @@
+.ecc-main{
+  display:grid;
+  grid-template-columns:minmax(0,2fr) minmax(0,3fr);
+  gap:1.25rem;
+  align-items:start;
+}
+
+.ecc-command-primary{
+  position:sticky;
+  top:1rem;
+  min-width:0;
+}
+
+.ecc-right-column{
+  display:grid;
+  gap:1.25rem;
+  min-width:0;
+}
+
+.ecc-launch{
+  grid-template-columns:1fr;
+  align-items:stretch;
+}
+
+.ecc-task-configuration{
+  display:grid;
+  gap:1rem;
+}
+
+.ecc-task-configuration > *,
+.ecc-task-configuration #eccPublisherFields{
+  min-width:0;
+}
+
+.ecc-task-configuration #eccPublisherFields{
+  display:grid;
+  gap:1rem;
+}
+
+.ecc-inventory-panel{
+  min-width:0;
+}
+
+.ecc-inventory-heading{
+  align-items:end;
+}
+
+.ecc-inventory-updated{
+  color:var(--muted);
+  white-space:nowrap;
+}
+
+.ecc-inventory-table-wrap{
+  overflow-x:auto;
+  border:1px solid var(--line);
+  border-radius:6px;
+}
+
+.ecc-inventory-table{
+  width:100%;
+  border-collapse:collapse;
+  min-width:520px;
+}
+
+.ecc-inventory-table th,
+.ecc-inventory-table td{
+  padding:.85rem 1rem;
+  border-bottom:1px solid var(--line);
+  text-align:left;
+  vertical-align:middle;
+}
+
+.ecc-inventory-table thead th{
+  color:var(--muted);
+  font-size:.68rem;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  background:rgba(0,0,0,.14);
+}
+
+.ecc-inventory-table tbody tr:last-child th,
+.ecc-inventory-table tbody tr:last-child td{
+  border-bottom:0;
+}
+
+.ecc-inventory-table tbody th{
+  color:var(--text);
+  font-size:.86rem;
+  font-weight:600;
+}
+
+.ecc-inventory-count{
+  color:var(--light);
+  font-family:"Bodoni Moda",serif;
+  font-size:1.65rem;
+  font-weight:600;
+  line-height:1;
+}
+
+.ecc-inventory-source{
+  color:var(--muted);
+  font-size:.72rem;
+}
+
+.ecc-inventory-status{
+  display:inline-flex;
+  align-items:center;
+  gap:.4rem;
+  color:#45b979;
+  font-size:.7rem;
+  font-weight:600;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.ecc-inventory-status::before{
+  content:"";
+  width:.48rem;
+  height:.48rem;
+  border-radius:50%;
+  background:currentColor;
+}
+
+.ecc-inventory-status.ecc-loading{
+  color:var(--muted);
+}
+
+.ecc-inventory-status.ecc-error{
+  color:#df6c6c;
+}
+
+@media(max-width:900px){
+  .ecc-main{
+    grid-template-columns:1fr;
+  }
+
+  .ecc-command-primary{
+    position:static;
+  }
+
+  .ecc-right-column{
+    grid-column:1;
+  }
+}
+
+@media(max-width:680px){
+  .ecc-inventory-heading{
+    display:block;
+  }
+
+  .ecc-inventory-updated{
+    display:block;
+    margin-top:.4rem;
+    white-space:normal;
+  }
+
+  .ecc-inventory-table{
+    min-width:440px;
+  }
+}
