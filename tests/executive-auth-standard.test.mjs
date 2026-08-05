@@ -63,6 +63,9 @@ test('Executive authentication endpoint uses custom APROPOS recovery delivery', 
   assert.match(source, /admin\/generate_link/);
   assert.match(source, /hashed_token/);
   assert.match(source, /RESEND_API_KEY/);
+  assert.match(source, /RESEND_FROM_EMAIL/);
+  assert.match(source, /EXECUTIVE_RECOVERY_FROM_EMAIL/);
+  assert.match(source, /Executive recovery email delivery failed/);
   assert.match(source, /recoveryBridgeUrl/);
   assert.match(source, /executive-recovery/);
   assert.match(source, /update-password/);
