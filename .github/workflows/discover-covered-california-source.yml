@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - scripts/discover-covered-california-source.mjs
+      - scripts/discover-covered-california-source-v2.mjs
       - .github/workflows/discover-covered-california-source.yml
   workflow_dispatch:
 
@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y poppler-utils unzip
       - name: Acquire and validate Covered California packages
-        run: node scripts/discover-covered-california-source.mjs
+        run: node scripts/discover-covered-california-source-v2.mjs
       - name: Build artifact inventory
         if: always()
         run: |
