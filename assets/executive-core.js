@@ -8,6 +8,7 @@ const NETLIFY_FUNCTIONS={
   'command-acquisition-mission':'command-acquisition-mission',
   'command-automated-task':'command-automated-task',
   'command-executive-status':'command-executive-status',
+  'command-dashboard-inventory':'command-dashboard-inventory',
   'command-publisher-discovery-status':'command-publisher-discovery-status',
   'command-county-options':'command-county-options',
   'command-publisher-options':'command-publisher-options',
