@@ -1,0 +1,51 @@
+/* Source-of-truth correction layer: concise primary print report, expandable raw appendix. */
+.evidence-appendix-card .appendix-reference {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--gold);
+  background: rgba(244, 240, 230, 0.5);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.evidence-appendix-details {
+  border: 1px solid var(--champagne);
+  background: var(--soft-white);
+}
+
+.evidence-appendix-details > summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--section-navy);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.evidence-appendix-content {
+  padding: 0 16px 16px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.status-stalled-at-capture { color: #F0B9B9; }
+.status-queued-at-capture, .status-running-at-capture { color: #E6D2A5; }
+
+@media print {
+  .evidence-appendix-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .evidence-appendix-card .evidence-appendix-details {
+    display: none !important;
+  }
+  .evidence-appendix-card .appendix-reference {
+    margin: 0;
+    border: 1px solid #777;
+    background: white;
+    font-size: 9pt;
+  }
+  .json-value {
+    max-height: 1.2in;
+    overflow: hidden;
+  }
+}
