@@ -56,7 +56,7 @@ for each row execute function public.prevent_mission_execution_report_mutation()
 
 alter table public.mission_execution_reports enable row level security;
 
-revoke all on table public.mission_execution_reports from public, anon, authenticated;
+revoke all on table public.mission_execution_reports from public, anon, authenticated, service_role;
 grant select, insert on table public.mission_execution_reports to service_role;
 
 comment on table public.mission_execution_reports is
