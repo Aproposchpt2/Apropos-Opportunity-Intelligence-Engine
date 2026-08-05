@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <base href="/">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>APIE Mission Reports Registry</title>
+  <link rel="stylesheet" href="/assets/executive-auth.css">
+  <link rel="stylesheet" href="/assets/mission-report.css">
+</head>
+<body class="report-page registry-page">
+  <div id="gateOverlay" class="gate-visible"></div>
+
+  <header class="report-topbar no-print">
+    <div>
+      <p class="report-kicker">APROPOS GROUP LLC · PROCUREMENT INTELLIGENCE ENGINE</p>
+      <strong>Mission Reports Registry</strong>
+    </div>
+    <nav><a href="/">Executive Dashboard</a></nav>
+  </header>
+
+  <main class="report-shell registry-shell">
+    <section class="report-hero">
+      <div>
+        <p class="report-kicker">EXECUTIVE REPORT ARCHIVE</p>
+        <h1>Mission Reports Registry</h1>
+        <p>Locate run-specific reports by mission, publisher, geography, status, connector, date, and exception count.</p>
+      </div>
+      <div class="report-state-block">
+        <span>ACCESS</span>
+        <strong class="status-badge status-final">EXECUTIVE</strong>
+        <small id="registryUpdated">—</small>
+      </div>
+    </section>
+
+    <form id="registryFilters" class="registry-filters no-print">
+      <label>Mission Type<input name="mission_type_key" placeholder="e.g. ACQUISITION_DISCOVERY"></label>
+      <label>Publisher<input name="publisher" placeholder="Publisher name"></label>
+      <label>State<input name="state" maxlength="2" placeholder="CA"></label>
+      <label>Status<input name="status" placeholder="STOPPED"></label>
+      <label>Connector<input name="connector" placeholder="Connector key"></label>
+      <label>Certification<input name="certification" placeholder="CERTIFIED"></label>
+      <label>From<input name="date_from" type="date"></label>
+      <label>To<input name="date_to" type="date"></label>
+      <label>Minimum Warnings<input name="warning_count" type="number" min="0"></label>
+      <label>Minimum Failures<input name="failure_count" type="number" min="0"></label>
+      <label>Run ID<input name="run_id" placeholder="UUID"></label>
+      <div class="registry-actions">
+        <button type="submit">APPLY FILTERS</button>
+        <button id="clearFilters" type="button">CLEAR</button>
+      </div>
+    </form>
+
+    <section class="report-card registry-card">
+      <div class="section-heading">
+        <div><p class="report-kicker">REPORT INVENTORY</p><h2>Prior Mission Runs</h2></div>
+        <strong id="registryCount">0 records</strong>
+      </div>
+      <div id="registryMessage" class="registry-message">Loading reports…</div>
+      <div class="table-wrap">
+        <table class="report-table registry-table">
+          <thead>
+            <tr>
+              <th>Report ID</th><th>Run ID</th><th>Mission</th><th>Publisher</th><th>Status</th>
+              <th>Started</th><th>Completed</th><th>Version</th><th>Warnings</th><th>Failures</th>
+              <th>Final Determination</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="registryRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="ecc-sidebar-footer no-print">
+        <small>AUTHORIZED OPERATOR</small>
+        <strong id="eccOperatorEmail">Session not established</strong>
+        <button id="eccSignOut" type="button">Sign out</button>
+        <span>Executive Mission Control · Internal Controlled System</span>
+      </div>
+    </footer>
+  </main>
+
+  <script src="/assets/runtime-config.js"></script>
+  <script src="/assets/executive-core.js" defer></script>
+  <script src="/assets/mission-reports.js" defer></script>
+</body>
+</html>
