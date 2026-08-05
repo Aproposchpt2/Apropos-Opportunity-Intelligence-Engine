@@ -1,7 +1,9 @@
 name: ECC Recovery Live Smoke
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - fix/executive-password-recovery
 
 permissions:
   contents: read
@@ -10,12 +12,14 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
+      - name: Wait for Netlify deploy preview
+        run: sleep 35
       - name: Verify recovery bridge route
         run: |
           set -euo pipefail
           response="$(curl --fail --silent --show-error --location --max-time 30 \
             -H 'Accept: text/html' \
-            'https://apie.aproposgroupllc.com/executive-recovery')"
+            'https://deploy-preview-27--apropos-procurement-engine.netlify.app/executive-recovery')"
           grep -q 'Executive Password Recovery' <<<"$response"
           grep -q 'CONTINUE PASSWORD RESET' <<<"$response"
           grep -q 'Authorized operator access only' <<<"$response"
