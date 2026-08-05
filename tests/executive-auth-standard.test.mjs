@@ -56,16 +56,34 @@ test('Executive login client exposes email, password, recovery, reset, persisten
   }
 });
 
-test('Executive authentication endpoint delegates credential and recovery operations to Supabase Auth', async () => {
+test('Executive authentication endpoint uses custom APROPOS recovery delivery', async () => {
   const source = await readFile(new URL('../netlify/functions/executive-auth.js', import.meta.url), 'utf8');
 
   assert.match(source, /token\?grant_type=password/);
-  assert.match(source, /reset/);
-  assert.match(source, /recover\?redirect_to=/);
+  assert.match(source, /admin\/generate_link/);
+  assert.match(source, /hashed_token/);
+  assert.match(source, /RESEND_API_KEY/);
+  assert.match(source, /recoveryBridgeUrl/);
+  assert.match(source, /executive-recovery/);
   assert.match(source, /update-password/);
   assert.match(source, /auth\/v1\/\$\{path\}/);
+  assert.match(source, /SUPABASE_SERVICE_KEY/);
   assert.match(source, /EXECUTIVE_OPERATOR_EMAIL/);
   assert.match(source, /EXECUTIVE_RECOVERY_REDIRECT/);
+  assert.doesNotMatch(source, /recover\?redirect_to=/);
+});
+
+test('Executive recovery bridge waits for explicit operator continuation before consuming the token', async () => {
+  const source = await readFile(new URL('../netlify/functions/executive-recovery.js', import.meta.url), 'utf8');
+
+  assert.match(source, /method="post"/);
+  assert.match(source, /CONTINUE PASSWORD RESET/);
+  assert.match(source, /location\.hash/);
+  assert.match(source, /history\.replaceState/);
+  assert.match(source, /token_hash/);
+  assert.match(source, /type: 'recovery'/);
+  assert.match(source, /access_token/);
+  assert.match(source, /path: '\/executive-recovery'/);
 });
 
 test('Executive authentication styling preserves the approved command-center standard', async () => {
