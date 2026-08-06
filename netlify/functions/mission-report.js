@@ -16,7 +16,12 @@ import {
 } from './_shared/mission-reporting-hardening.js';
 
 const enc = value => encodeURIComponent(String(value || ''));
-const inFilter = values => `(${values.map(value => `"${String(value).replaceAll('"', '\\"')}"`).join(',')})`;
+const inFilter = values => `(${values.map(value => `\"${String(value).replaceAll('\"', '\\\"')}\"`).join(',')})`;
+const PRODUCTION_BASELINE = Object.freeze({
+  commit: 'befed5bf80b29e20b36326d9709275509031cf86',
+  deployId: '6a73b662a02c01000850d8fc',
+  url: 'https://apie.aproposgroupllc.com'
+});
 
 function authenticatedOperator(event) {
   const authorization = String(header(event, 'authorization') || '');
@@ -185,7 +190,10 @@ function productionEvidence() {
     commit: env('COMMIT_REF') || env('HEAD') || NOT_REPORTED,
     deployId: env('DEPLOY_ID') || NOT_REPORTED,
     url: env('DEPLOY_PRIME_URL') || env('DEPLOY_URL') || env('URL') || NOT_REPORTED,
-    context: env('CONTEXT') || NOT_REPORTED
+    context: env('CONTEXT') || NOT_REPORTED,
+    productionBaselineCommit: env('REPORT_PRODUCTION_BASELINE_COMMIT') || PRODUCTION_BASELINE.commit,
+    productionBaselineDeployId: env('REPORT_PRODUCTION_BASELINE_DEPLOY_ID') || PRODUCTION_BASELINE.deployId,
+    productionBaselineUrl: env('REPORT_PRODUCTION_BASELINE_URL') || PRODUCTION_BASELINE.url
   };
 }
 
@@ -206,6 +214,44 @@ function storedPayload(row) {
     },
     persisted: true
   };
+}
+
+function enrichValidationReport(report, context, production, latest) {
+  const isPreview = String(production.context || '').toLowerCase() !== 'production';
+  Object.assign(report.report_metadata, {
+    preview_git_commit: isPreview ? production.commit : NOT_REPORTED,
+    preview_netlify_deploy: isPreview ? production.deployId : NOT_REPORTED,
+    preview_url: isPreview ? production.url : NOT_REPORTED,
+    production_baseline_git_commit: production.productionBaselineCommit,
+    production_baseline_netlify_deploy: production.productionBaselineDeployId,
+    production_baseline_url: production.productionBaselineUrl,
+    supersedes_report_id: latest?.id || report.report_metadata.supersedes_report_id || NOT_REPORTED
+  });
+
+  const status = String(context.run?.status || context.run?.aadp_state || '').trim().toUpperCase();
+  if (status === 'STOPPED') {
+    const priorStage = context.run?.execution_evidence?.prior_stage ||
+      context.run?.execution_evidence?.last_authoritative_checkpoint ||
+      context.run?.resume_source_stage ||
+      context.run?.current_stage ||
+      NOT_REPORTED;
+    Object.assign(report.run_status, {
+      prior_stage: priorStage,
+      last_authoritative_checkpoint: priorStage,
+      operator_stop_timestamp: context.run?.stop_requested_at || NOT_REPORTED,
+      verification_execution_completed: false,
+      command_task_count: context.tasks.length,
+      task_attempt_count: context.attempts.length
+    });
+    Object.assign(report.executive_determination, {
+      determination: 'STOPPED BEFORE VERIFICATION',
+      summary: 'The run was stopped by the authorized operator before worker claim. No current-run verification execution completed.'
+    });
+    Object.assign(report.final_acceptance_decision, {
+      determination: 'STOPPED BEFORE VERIFICATION',
+      accepted: false
+    });
+  }
 }
 
 export const handler = async event => {
@@ -230,8 +276,6 @@ export const handler = async event => {
     }
 
     const action = String(body.action || 'read').trim().toLowerCase();
-    if (action !== 'amend' && reports.length) return response(200, storedPayload(reports[0]));
-
     const context = await loadContext(commandRunId);
     if (context.notFound) return response(404, { error: 'Report not found', command_run_id: commandRunId });
 
@@ -250,17 +294,28 @@ export const handler = async event => {
     });
 
     const terminal = isTerminalOutcome(context.run.status || context.run.aadp_state);
+    const latest = reports[0] || null;
+    const latestState = String(latest?.report_state || '').toUpperCase();
+    const latestMatchesAuthoritativeState = terminal
+      ? ['FINAL', 'AMENDED'].includes(latestState)
+      : latestState === 'DRAFT';
+
+    if (action === 'read' && latest && latestMatchesAuthoritativeState) {
+      return response(200, storedPayload(latest));
+    }
 
     if (action === 'amend') {
       if (!terminal) return response(409, { error: 'Only terminal reports may be amended.' });
       const reason = String(body.amendment_reason || '').trim();
       if (!reason) return response(400, { error: 'amendment_reason required' });
-      if (!reports.length) return response(409, { error: 'A FINAL report must exist before an amendment can be created.' });
+      if (!reports.length || !['FINAL', 'AMENDED'].includes(latestState)) {
+        return response(409, { error: 'A FINAL report must exist before an amendment can be created.' });
+      }
 
-      const latest = reports[0];
       const original = reports.at(-1);
       const nextVersion = Number(latest.report_version) + 1;
       const id = randomUUID();
+      const production = productionEvidence();
       const report = buildMissionReport(context, {
         generatedAt: new Date().toISOString(),
         reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${nextVersion}`,
@@ -270,8 +325,9 @@ export const handler = async event => {
         supersedesReportId: latest.id,
         originalEvidenceHash: original.report_hash,
         finalizedAt: latest.finalized_at,
-        production: productionEvidence()
+        production
       });
+      enrichValidationReport(report, context, production, latest);
       const hash = reportHash(report);
       const inserted = await db('mission_execution_reports', {
         method: 'POST',
@@ -295,44 +351,35 @@ export const handler = async event => {
     }
 
     const generatedAt = new Date().toISOString();
-    const version = reports.length ? Number(reports[0].report_version) : 1;
+    const version = latest ? Number(latest.report_version) + 1 : 1;
     const reportState = terminal ? 'FINAL' : 'DRAFT';
+    const id = randomUUID();
+    const production = productionEvidence();
     const report = buildMissionReport(context, {
       generatedAt,
       reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${version}`,
       reportVersion: version,
       reportState,
-      production: productionEvidence()
+      supersedesReportId: latest?.id,
+      originalEvidenceHash: reports.at(-1)?.report_hash,
+      production
     });
+    enrichValidationReport(report, context, production, latest);
     const hash = reportHash(report);
 
-    if (!terminal) return response(200, {
-      report,
-      storage: {
-        id: NOT_REPORTED,
-        command_run_id: commandRunId,
-        mission_type_key: context.run.mission_type_key,
-        report_version: version,
-        report_state: 'DRAFT',
-        report_hash: hash,
-        generated_at: generatedAt
-      },
-      persisted: false
-    });
-
-    const id = randomUUID();
     const inserted = await db('mission_execution_reports', {
       method: 'POST',
       body: JSON.stringify({
         id,
         command_run_id: commandRunId,
         mission_type_key: context.run.mission_type_key,
-        report_version: 1,
-        report_state: 'FINAL',
+        report_version: version,
+        report_state: reportState,
         report_data: report,
         report_hash: hash,
         generated_at: generatedAt,
-        finalized_at: generatedAt,
+        finalized_at: terminal ? generatedAt : null,
+        supersedes_report_id: latest?.id || null,
         created_by: operator.email
       })
     });
