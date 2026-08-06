@@ -48,3 +48,5 @@ jobs:
             artifacts/caleprocure-package-batch/**
           if-no-files-found: warn
           retention-days: 30
+
+# Run-state compatibility repair verified 2026-08-06
