@@ -52,6 +52,17 @@ jobs:
           required='91aee569cb7ff82a51b20ee1cb29c0aea85731e61298967ff89538b1f4657b50'
           test "$calculated" = "$required"
 
+      - name: Correct artifact package directory resolution
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/persist-caleprocure-validation-artifact.mjs')
+          text = p.read_text()
+          replacement = "f.includes(({'0000039706':'DGS-25-322011-WINDOW-SYSTEMS','7CA07976':'CALFIRE-7CA07976-GENERATOR','0000039831':'DOJ-26-0060-AIRCRAFT'}[eventId]))"
+          text = text.replace('f.includes(eventId)', replacement)
+          p.write_text(text)
+          PY
+
       - name: Persist and reconcile packages
         run: node scripts/persist-caleprocure-validation-artifact.mjs caleprocure-multi-event-validation.zip
 
