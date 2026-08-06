@@ -22,12 +22,16 @@ jobs:
           test -f assets/executive-command-center.js
           test -f assets/executive-launch.js
           test -f assets/mission-workspace.js
+          test -f assets/mission-report.js
           test -f assets/task-force-monitors/monitor-common.js
           test -f assets/task-force-monitors/monitor-registry.js
           test -f assets/task-force-monitors/monitor.css
           test -f netlify/functions/executive-auth.js
+          test -f netlify/functions/mission-report.js
           test -f tests/executive-auth-standard.test.mjs
           test -f tests/task-force-monitor.test.mjs
+          test -f tests/mission-reporting-validation-003.test.mjs
+          test -f supabase/migrations/20260806012000_mission_report_draft_versioning.sql
           grep -q "Executive Command Center" index.html
           grep -q "Launch Task Force" index.html
           grep -q "PROCUREMENT INVENTORY" index.html
@@ -42,9 +46,13 @@ jobs:
           node --check assets/executive-command-center.js
           node --check assets/executive-launch.js
           node --check assets/mission-workspace.js
+          node --check assets/mission-report.js
           for file in assets/task-force-monitors/*.js; do node --check "$file"; done
           node --check netlify/functions/executive-auth.js
           node --check netlify/functions/command-executive-status.js
+          node --check netlify/functions/mission-report.js
+          node --check netlify/functions/_shared/mission-reporting.js
+          node --check netlify/functions/_shared/mission-reporting-hardening.js
           node --check netlify/functions/_shared/native-runtime.js
 
       - name: Run blocking Executive authentication tests
@@ -52,6 +60,9 @@ jobs:
 
       - name: Run blocking mission-monitor tests
         run: node --test tests/task-force-monitor.test.mjs
+
+      - name: Run blocking mission-report source-of-truth tests
+        run: node --test tests/mission-reporting-validation-003.test.mjs
 
       - name: Run legacy acceptance suite for diagnostics
         continue-on-error: true
@@ -88,4 +99,4 @@ jobs:
 
       - name: Validate browser credential boundary
         run: |
-          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/executive-auth.css assets/task-force-monitors/*.js
+          ! grep -Eiq "service_role|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY" index.html assets/executive-core.js assets/executive-command-center.js assets/executive-launch.js assets/mission-workspace.js assets/mission-report.js assets/executive-auth.css assets/task-force-monitors/*.js
