@@ -1,6 +1,8 @@
 name: Acquire Cal eProcure Package Batch
 
 on:
+  workflow_dispatch:
+
   push:
     branches:
       - caleprocure-persistence-validation-001
