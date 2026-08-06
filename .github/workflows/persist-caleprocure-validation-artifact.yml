@@ -1,0 +1,65 @@
+name: Persist Cal eProcure Validation Artifact
+
+on:
+  push:
+    branches:
+      - caleprocure-persistence-validation-001
+    paths:
+      - scripts/persist-caleprocure-validation-artifact.mjs
+      - .github/workflows/persist-caleprocure-validation-artifact.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: caleprocure-persistence-validation-001
+  cancel-in-progress: false
+
+jobs:
+  persist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: caleprocure-persistence-validation-001
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install repository dependencies
+        run: npm install
+
+      - name: Download verified validation artifact
+        run: |
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            repos/${GITHUB_REPOSITORY}/actions/artifacts/8921004540/zip \
+            > caleprocure-multi-event-validation.zip
+
+      - name: Verify artifact SHA-256
+        run: |
+          calculated="$(sha256sum caleprocure-multi-event-validation.zip | awk '{print $1}')"
+          required='91aee569cb7ff82a51b20ee1cb29c0aea85731e61298967ff89538b1f4657b50'
+          test "$calculated" = "$required"
+
+      - name: Persist and reconcile packages
+        run: node scripts/persist-caleprocure-validation-artifact.mjs caleprocure-multi-event-validation.zip
+
+      - name: Upload reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caleprocure-persistence-reconciliation
+          path: caleprocure-persistence-reconciliation.json
+          if-no-files-found: warn
+          retention-days: 7
