@@ -35,6 +35,12 @@ function authoritativeStatus(context) {
     .replaceAll(' ', '_');
 }
 
+export function reportHash(report) {
+  const hashInput = structuredClone(report);
+  if (hashInput?.report_metadata) hashInput.report_metadata.report_hash = base.NOT_REPORTED;
+  return base.reportHash(hashInput);
+}
+
 export function deriveOperationalOutcome(context, generatedAt = new Date().toISOString()) {
   const status = authoritativeStatus(context);
   const normalized = base.normalizeRunOutcome(status);
