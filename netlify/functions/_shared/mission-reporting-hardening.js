@@ -85,7 +85,7 @@ export function buildMissionReport(context, options = {}) {
   const report = v1.buildMissionReport(hardened, options);
 
   if (report?.report_metadata) {
-    report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.2-SOURCE-OF-TRUTH';
+    report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.2-TRUTH-CORRECTION-SOURCE-OF-TRUTH';
   }
 
   if (report?.publisher_and_connector) {
