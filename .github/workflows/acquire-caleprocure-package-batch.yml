@@ -1,0 +1,56 @@
+name: Acquire Cal eProcure Package Batch
+
+on:
+  push:
+    branches:
+      - caleprocure-persistence-validation-001
+    paths:
+      - scripts/acquire-caleprocure-package-batch.mjs
+      - .github/workflows/acquire-caleprocure-package-batch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: caleprocure-package-acquisition
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      BATCH_SIZE: '5'
+    steps:
+      - name: Check out validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: caleprocure-persistence-validation-001
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install repository dependencies
+        run: npm install
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Execute queue-driven package batch
+        run: node scripts/acquire-caleprocure-package-batch.mjs
+
+      - name: Upload reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caleprocure-package-batch-reconciliation-${{ github.run_id }}
+          path: caleprocure-package-batch-reconciliation.json
+          if-no-files-found: warn
+          retention-days: 14
