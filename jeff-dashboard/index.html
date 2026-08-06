@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Jeff Dashboard — PDAS / PIEE Mission Control</title>
+  <link rel="stylesheet" href="/assets/jeff-dashboard.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><div class="mark">JM</div><div><h1>Jeff Dashboard</h1><small>PDAS / PIEE Executive Mission Control</small></div></div>
+  <button id="refreshButton" class="refresh" type="button">Refresh Live Data</button>
+</header>
+<main class="shell">
+  <section id="gate" class="panel gate">
+    <h2>Password required</h2>
+    <p class="muted">This is an internal executive operations dashboard.</p>
+    <form id="gateForm" class="gate-form">
+      <input id="gatePassword" type="password" autocomplete="off" placeholder="Password" required>
+      <button class="refresh" type="submit">Enter</button>
+    </form>
+    <p id="gateError" class="gate-error"></p>
+  </section>
+  <div id="app" class="loading hidden">Loading live PDAS and PIEE metrics…</div>
+</main>
+<script src="/assets/jeff-dashboard.js" defer></script>
+</body>
+</html>
