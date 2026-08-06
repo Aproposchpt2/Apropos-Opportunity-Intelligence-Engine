@@ -1,4 +1,3 @@
-# persistence validation retry 2026-08-06
 name: Persist Cal eProcure Validation Artifact
 
 on:
@@ -28,19 +27,29 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out validation branch
-        uses: actions/checkout@v4
-        with:
-          ref: caleprocure-persistence-validation-001
+        run: |
+          git clone --depth 1 --branch caleprocure-persistence-validation-001 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repository
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+        run: |
+          if [ -x /opt/hostedtoolcache/node/20.20.2/x64/bin/node ]; then
+            echo "/opt/hostedtoolcache/node/20.20.2/x64/bin" >> "$GITHUB_PATH"
+          elif command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(`.`)[0]')" = "20" ]; then
+            true
+          else
+            curl -fsSL https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-x64.tar.xz -o node20.tar.xz
+            mkdir -p "$RUNNER_TEMP/node20"
+            tar -xJf node20.tar.xz -C "$RUNNER_TEMP/node20" --strip-components=1
+            echo "$RUNNER_TEMP/node20/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Install repository dependencies
+        working-directory: repository
         run: npm install
 
       - name: Download verified validation artifact
+        working-directory: repository
         run: |
           gh api \
             -H 'Accept: application/vnd.github+json' \
@@ -48,14 +57,16 @@ jobs:
             > caleprocure-multi-event-validation.zip
 
       - name: Verify artifact SHA-256
+        working-directory: repository
         run: |
           calculated="$(sha256sum caleprocure-multi-event-validation.zip | awk '{print $1}')"
           required='91aee569cb7ff82a51b20ee1cb29c0aea85731e61298967ff89538b1f4657b50'
           test "$calculated" = "$required"
 
       - name: Correct artifact package directory resolution
+        working-directory: repository
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('scripts/persist-caleprocure-validation-artifact.mjs')
           text = p.read_text()
@@ -65,13 +76,13 @@ jobs:
           PY
 
       - name: Persist and reconcile packages
+        working-directory: repository
         run: node scripts/persist-caleprocure-validation-artifact.mjs caleprocure-multi-event-validation.zip
 
-      - name: Upload reconciliation evidence
+      - name: Preserve reconciliation evidence
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: caleprocure-persistence-reconciliation
-          path: caleprocure-persistence-reconciliation.json
-          if-no-files-found: warn
-          retention-days: 7
+        working-directory: repository
+        run: |
+          if [ -f caleprocure-persistence-reconciliation.json ]; then
+            cp caleprocure-persistence-reconciliation.json "$GITHUB_WORKSPACE/caleprocure-persistence-reconciliation.json"
+          fi
