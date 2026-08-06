@@ -1,3 +1,4 @@
+// MANUAL_BATCH_TRIGGER_2026_08_06_01
 import { chromium } from 'playwright';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
