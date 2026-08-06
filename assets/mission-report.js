@@ -94,25 +94,70 @@ function renderMetrics(metrics) {
   </table></div>`;
 }
 
+function connectorSummary(connector = {}) {
+  const evidence = connector.acceptance_evidence || {};
+  return {
+    connector_key: connector.connector_key,
+    connector_version: connector.connector_version,
+    acceptance_status: connector.acceptance_status,
+    certification_status: evidence.certification_status,
+    validation_status: connector.validation_status,
+    tested_at: connector.tested_at,
+    accepted_at: connector.accepted_at
+  };
+}
+
+function publisherSummary(publisher = {}) {
+  return {
+    publisher_name: publisher.publisher_name,
+    state: publisher.state_code,
+    county: publisher.county_name,
+    registry_verified: publisher.verified,
+    access_status: publisher.access_status,
+    last_verified_at: publisher.last_verified_at
+  };
+}
+
+function assignmentSummary(assignment) {
+  if (!assignment || assignment === 'NOT REPORTED') return 'NOT REPORTED';
+  return {
+    assignment_id: assignment.id,
+    status: assignment.status,
+    acquisition_method: assignment.acquisition_method,
+    qualification_ruleset_version: assignment.qualification_ruleset_version
+  };
+}
+
 function renderPublisher(section) {
   const baseline = section?.existing_baseline || {};
   const current = section?.current_run || {};
+  const baselineSummary = baseline.connector ? {
+    certification: baseline.certification_summary || 'NOT REPORTED',
+    publisher: publisherSummary(baseline.publisher),
+    connector: connectorSummary(baseline.connector),
+    context_notice: baseline.context_notice
+  } : { value: 'NOT REPORTED' };
+  const currentSummary = {
+    current_run_eag_001_result: current.eag_001_result || current.value || 'NOT REPORTED',
+    note: current.note || 'NOT REPORTED'
+  };
+
   return `
     <div class="summary-grid">
       <div class="field"><span>Publisher ID</span><strong>${primitive(section?.publisher_id)}</strong></div>
       <div class="field"><span>Publisher Name</span><strong>${primitive(section?.publisher_name)}</strong></div>
     </div>
     <div class="evidence-block baseline">
-      <span class="evidence-badge baseline">EXISTING BASELINE</span>
-      ${renderValue(baseline, 1)}
+      <span class="evidence-badge baseline">EXISTING BASELINE ONLY</span>
+      ${renderObjectGrid(baselineSummary)}
     </div>
     <div class="evidence-block current">
       <span class="evidence-badge current">CURRENT RUN</span>
-      ${renderValue(current, 1)}
+      ${renderObjectGrid(currentSummary)}
     </div>
     <div class="evidence-block derived">
       <span class="evidence-badge derived">ASSIGNMENT CONTEXT</span>
-      ${renderValue(section?.assignment, 1)}
+      ${renderValue(assignmentSummary(section?.assignment), 1)}
     </div>`;
 }
 
@@ -192,13 +237,16 @@ function showReport(data) {
   loadedReport = data.report;
   loadedStorage = data.storage || {};
   const metadata = loadedReport.report_metadata || {};
+  if (loadedStorage.report_hash && isNotReported(metadata.report_hash)) {
+    metadata.report_hash = loadedStorage.report_hash;
+  }
   const identity = loadedReport.mission_identity || {};
   byId('reportTitle').textContent = metadata.report_title || 'Mission Execution Report';
   byId('reportSubtitle').textContent = `${identity.mission_name || 'Mission'} · Run ${identity.command_run_id || 'NOT REPORTED'}`;
   byId('reportState').textContent = metadata.report_state || 'DRAFT';
   byId('reportState').className = `status-badge ${statusClass(metadata.report_state)}`;
   byId('reportGenerated').textContent = `Generated ${dateValue(metadata.generated_at)}`;
-  byId('reportHash').textContent = loadedStorage.report_hash || 'NOT REPORTED';
+  byId('reportHash').textContent = loadedStorage.report_hash || metadata.report_hash || 'NOT REPORTED';
   byId('reportBody').innerHTML = reportMarkup(loadedReport);
   byId('reportBody').hidden = false;
   byId('reportError').hidden = true;
@@ -222,7 +270,16 @@ byId('printReport').addEventListener('click', () => window.print());
 
 byId('downloadJson').addEventListener('click', () => {
   if (!loadedReport) return;
-  const blob = new Blob([JSON.stringify(loadedReport, null, 2)], { type: 'application/json' });
+  const exportPayload = {
+    report: loadedReport,
+    storage: loadedStorage,
+    export_control: {
+      includes_full_raw_evidence: true,
+      printable_view_uses_concise_publisher_and_connector_summary: true,
+      exported_at: new Date().toISOString()
+    }
+  };
+  const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   const runId = loadedReport.mission_identity?.command_run_id || 'mission';
