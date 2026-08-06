@@ -216,7 +216,7 @@ function storedPayload(row) {
   };
 }
 
-function enrichValidationReport(report, context, production, latest) {
+function enrichValidationReport(report, context, production, supersedesReference = NOT_REPORTED) {
   const isPreview = String(production.context || '').toLowerCase() !== 'production';
   Object.assign(report.report_metadata, {
     preview_git_commit: isPreview ? production.commit : NOT_REPORTED,
@@ -225,7 +225,7 @@ function enrichValidationReport(report, context, production, latest) {
     production_baseline_git_commit: production.productionBaselineCommit,
     production_baseline_netlify_deploy: production.productionBaselineDeployId,
     production_baseline_url: production.productionBaselineUrl,
-    supersedes_report_id: latest?.id || report.report_metadata.supersedes_report_id || NOT_REPORTED
+    supersedes_report_id: supersedesReference || report.report_metadata.supersedes_report_id || NOT_REPORTED
   });
 
   const status = String(context.run?.status || context.run?.aadp_state || '').trim().toUpperCase();
@@ -296,11 +296,9 @@ export const handler = async event => {
     const terminal = isTerminalOutcome(context.run.status || context.run.aadp_state);
     const latest = reports[0] || null;
     const latestState = String(latest?.report_state || '').toUpperCase();
-    const latestMatchesAuthoritativeState = terminal
-      ? ['FINAL', 'AMENDED'].includes(latestState)
-      : latestState === 'DRAFT';
+    const draftReference = context.run?.execution_evidence?.validation_draft_report || null;
 
-    if (action === 'read' && latest && latestMatchesAuthoritativeState) {
+    if (action === 'read' && terminal && latest && ['FINAL', 'AMENDED'].includes(latestState)) {
       return response(200, storedPayload(latest));
     }
 
@@ -327,7 +325,7 @@ export const handler = async event => {
         finalizedAt: latest.finalized_at,
         production
       });
-      enrichValidationReport(report, context, production, latest);
+      enrichValidationReport(report, context, production, latest.id);
       const hash = reportHash(report);
       const inserted = await db('mission_execution_reports', {
         method: 'POST',
@@ -351,20 +349,54 @@ export const handler = async event => {
     }
 
     const generatedAt = new Date().toISOString();
-    const version = latest ? Number(latest.report_version) + 1 : 1;
-    const reportState = terminal ? 'FINAL' : 'DRAFT';
-    const id = randomUUID();
     const production = productionEvidence();
+
+    if (!terminal) {
+      const version = Number(draftReference?.report_version || 1);
+      const reportId = draftReference?.report_id || `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${version}`;
+      const report = buildMissionReport(context, {
+        generatedAt,
+        reportId,
+        reportVersion: version,
+        reportState: 'DRAFT',
+        production
+      });
+      enrichValidationReport(report, context, production, NOT_REPORTED);
+      const hash = reportHash(report);
+      return response(200, {
+        report,
+        storage: {
+          id: NOT_REPORTED,
+          command_run_id: commandRunId,
+          mission_type_key: context.run.mission_type_key,
+          report_version: version,
+          report_state: 'DRAFT',
+          report_hash: hash,
+          generated_at: generatedAt,
+          preservation_reference: draftReference?.report_id || NOT_REPORTED,
+          preservation_method: draftReference?.preservation_method || 'DOWNLOADABLE_JSON_AND_PDF'
+        },
+        persisted: false
+      });
+    }
+
+    const version = latest
+      ? Number(latest.report_version) + 1
+      : Number(draftReference?.report_version || 0) + 1 || 1;
+    const reportState = 'FINAL';
+    const id = randomUUID();
+    const logicalSupersedes = latest?.id || draftReference?.report_id || NOT_REPORTED;
+    const originalEvidenceHash = reports.at(-1)?.report_hash || draftReference?.report_hash || NOT_REPORTED;
     const report = buildMissionReport(context, {
       generatedAt,
       reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${version}`,
       reportVersion: version,
       reportState,
-      supersedesReportId: latest?.id,
-      originalEvidenceHash: reports.at(-1)?.report_hash,
+      supersedesReportId: logicalSupersedes,
+      originalEvidenceHash,
       production
     });
-    enrichValidationReport(report, context, production, latest);
+    enrichValidationReport(report, context, production, logicalSupersedes);
     const hash = reportHash(report);
 
     const inserted = await db('mission_execution_reports', {
@@ -378,8 +410,8 @@ export const handler = async event => {
         report_data: report,
         report_hash: hash,
         generated_at: generatedAt,
-        finalized_at: terminal ? generatedAt : null,
-        supersedes_report_id: latest?.id || null,
+        finalized_at: generatedAt,
+        supersedes_report_id: null,
         created_by: operator.email
       })
     });
