@@ -80,7 +80,7 @@ export function buildMissionReport(context, options = {}) {
     ...context,
     baselineConnectorEvidence: resolution.selected
       ? [resolution.selected, ...resolution.supplemental]
-      : []
+      : (context.baselineConnectorEvidence || [])
   };
   const report = v1.buildMissionReport(hardened, options);
 
@@ -88,7 +88,7 @@ export function buildMissionReport(context, options = {}) {
     report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.2-TRUTH-CORRECTION-SOURCE-OF-TRUTH';
   }
 
-  if (report?.publisher_and_connector) {
+  if (report?.publisher_and_connector && resolution.selected) {
     const existing = report.publisher_and_connector.existing_baseline || {};
     const configuration = context.publisher?.configuration || {};
     const selected = resolution.selected;
@@ -125,7 +125,7 @@ export function buildMissionReport(context, options = {}) {
     }
   };
 
-  if (report.evidence_appendix?.raw_baseline_evidence) {
+  if (resolution.selected && report.evidence_appendix?.raw_baseline_evidence) {
     report.evidence_appendix.raw_baseline_evidence.connector_acceptance = resolution.selected || v1.NOT_REPORTED;
     report.evidence_appendix.raw_baseline_evidence.supplemental_connector_records = resolution.supplemental;
   }
