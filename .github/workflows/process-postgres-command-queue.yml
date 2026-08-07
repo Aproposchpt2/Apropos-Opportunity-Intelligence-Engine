@@ -11,6 +11,8 @@ on:
       - netlify/functions/command-acquisition-worker-background.js
       - netlify/functions/command-publisher-expansion-worker-background.js
       - netlify/functions/command-mission-control.js
+      - netlify/functions/command-mission-control-team.js
+      - netlify/functions/_shared/agent-team.js
   schedule:
     - cron: '*/5 * * * *'
 
