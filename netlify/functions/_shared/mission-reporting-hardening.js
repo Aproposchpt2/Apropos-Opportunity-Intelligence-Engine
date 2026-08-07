@@ -12,6 +12,139 @@ function baselinePriority(row) {
     (row?.accepted_at ? 10 : 0);
 }
 
+const confirmed = (checkpoint, evidenceSource, detail = null) => ({
+  checkpoint,
+  status: 'CONFIRMED',
+  evidence_source: evidenceSource,
+  ...(detail ? { detail } : {})
+});
+
+const notConfirmed = (checkpoint, evidenceSource, detail = null) => ({
+  checkpoint,
+  status: 'NOT CONFIRMED',
+  evidence_source: evidenceSource,
+  ...(detail ? { detail } : {})
+});
+
+const notApplicable = checkpoint => ({
+  checkpoint,
+  status: 'NOT APPLICABLE',
+  evidence_source: 'MISSION TYPE'
+});
+
+function acquisitionDiagnosticTrace(context, report) {
+  const run = context.run || {};
+  const evidence = run.execution_evidence || {};
+  const stage = String(run.current_stage || '').toUpperCase();
+  const claimed = base.workerClaimed(context);
+  const acquisitionRuns = context.acquisitionRuns || [];
+  const rawRecords = context.rawRecords || [];
+  const dispositions = context.dispositions || [];
+  const rejections = context.rejections || [];
+  const opportunities = context.opportunities || [];
+  const terminal = base.isTerminalOutcome(run.status || run.aadp_state);
+
+  const adapter = evidence.connector_key || evidence.adapter_key || evidence.acquisition_method ||
+    context.assignment?.acquisition_method || context.publisher?.configuration?.connector_key || null;
+  const queueConfirmed = stage.includes('POSTGRES_EXECUTION') || stage.includes('GITHUB_WORKER') || claimed || acquisitionRuns.length > 0;
+  const acquisitionStarted = acquisitionRuns.length > 0 || rawRecords.length > 0 || stage.includes('ACQUISITION');
+  const qualificationRouted = dispositions.length > 0 || rejections.length > 0 || opportunities.length > 0 || stage.includes('QUALIFICATION') || stage.includes('ROUTING');
+
+  const checkpoints = [
+    confirmed('COMMAND ACCEPTED', 'command_runs / command_missions', run.id || base.NOT_REPORTED),
+    queueConfirmed
+      ? confirmed('QUEUE CREATED', 'command_runs.current_stage / execution evidence', run.current_stage || 'POSTGRES EXECUTION QUEUED')
+      : notConfirmed('QUEUE CREATED', 'command_runs.current_stage'),
+    claimed
+      ? confirmed('WORKER CLAIMED', 'command task / attempt / worker evidence')
+      : notConfirmed('WORKER CLAIMED', 'command task / attempt / worker evidence'),
+    adapter
+      ? confirmed('ADAPTER SELECTED', 'mission/run/publisher connector evidence', adapter)
+      : notConfirmed('ADAPTER SELECTED', 'mission/run/publisher connector evidence'),
+    acquisitionStarted
+      ? confirmed('ACQUISITION STARTED', acquisitionRuns.length ? 'acquisition_runs' : 'command_runs.current_stage')
+      : notConfirmed('ACQUISITION STARTED', 'acquisition_runs / command_runs.current_stage'),
+    rawRecords.length > 0
+      ? confirmed('RAW PERSISTENCE', 'acquisition_raw_records', `${rawRecords.length} raw record(s)`)
+      : notConfirmed('RAW PERSISTENCE', 'acquisition_raw_records'),
+    qualificationRouted
+      ? confirmed('QUALIFICATION ROUTED', dispositions.length || rejections.length ? 'acquisition_record_dispositions / acquisition_rejections' : 'state_contract_opportunities / current stage')
+      : notConfirmed('QUALIFICATION ROUTED', 'acquisition_record_dispositions / acquisition_rejections'),
+    opportunities.length > 0
+      ? confirmed('CANONICAL PERSISTENCE', 'state_contract_opportunities', `${opportunities.length} canonical record(s)`)
+      : notConfirmed('CANONICAL PERSISTENCE', 'state_contract_opportunities'),
+    terminal
+      ? confirmed('TERMINAL RESULT', 'command_runs.status', String(run.status || run.aadp_state || '').toUpperCase())
+      : notConfirmed('TERMINAL RESULT', 'command_runs.status', 'Run is non-terminal')
+  ];
+
+  const lastConfirmedIndex = checkpoints.reduce((last, item, index) => item.status === 'CONFIRMED' ? index : last, -1);
+  const firstUnconfirmedAfterLast = checkpoints.find((item, index) => index > lastConfirmedIndex && item.status === 'NOT CONFIRMED');
+  const lastConfirmed = lastConfirmedIndex >= 0 ? checkpoints[lastConfirmedIndex] : null;
+
+  return {
+    diagnostic_policy: 'NO TROUBLESHOOTING BY INFERENCE WHEN A MISSION REPORT CAN IDENTIFY THE LAST CONFIRMED CHECKPOINT.',
+    mission_type: 'ACQUISITION_DISCOVERY',
+    last_confirmed_checkpoint: lastConfirmed?.checkpoint || base.NOT_REPORTED,
+    next_unconfirmed_checkpoint: firstUnconfirmedAfterLast?.checkpoint || (terminal ? 'NONE — TERMINAL' : base.NOT_REPORTED),
+    troubleshooting_start_point: firstUnconfirmedAfterLast?.checkpoint || lastConfirmed?.checkpoint || base.NOT_REPORTED,
+    checkpoints,
+    evidence_labels: {
+      current_run: 'Authoritative for current execution state.',
+      existing_baseline: 'Context only; never credited as current-run execution.',
+      derived_analysis: 'Derived only from evidence read for this report.',
+      not_reported: 'Unknown; never converted to zero or success.'
+    }
+  };
+}
+
+function genericDiagnosticTrace(context, missionType) {
+  const run = context.run || {};
+  const stage = String(run.current_stage || '').toUpperCase();
+  const claimed = base.workerClaimed(context);
+  const terminal = base.isTerminalOutcome(run.status || run.aadp_state);
+  const queueConfirmed = stage.includes('POSTGRES_EXECUTION') || stage.includes('GITHUB_WORKER') || claimed;
+  const workEvidence = (context.tasks || []).length > 0 || (context.stages || []).some(row => base.reported(row.started_at));
+
+  const checkpoints = [
+    confirmed('COMMAND ACCEPTED', 'command_runs / command_missions', run.id || base.NOT_REPORTED),
+    queueConfirmed
+      ? confirmed('QUEUE CREATED', 'command_runs.current_stage / execution evidence', run.current_stage || base.NOT_REPORTED)
+      : notConfirmed('QUEUE CREATED', 'command_runs.current_stage'),
+    claimed
+      ? confirmed('WORKER CLAIMED', 'command task / attempt / worker evidence')
+      : notConfirmed('WORKER CLAIMED', 'command task / attempt / worker evidence'),
+    workEvidence
+      ? confirmed('MISSION WORK STARTED', 'command_tasks / stage projection')
+      : notConfirmed('MISSION WORK STARTED', 'command_tasks / stage projection'),
+    terminal
+      ? confirmed('TERMINAL RESULT', 'command_runs.status', String(run.status || run.aadp_state || '').toUpperCase())
+      : notConfirmed('TERMINAL RESULT', 'command_runs.status', 'Run is non-terminal')
+  ];
+
+  if (missionType === 'ACQUISITION_DISCOVERY') return null;
+  if (!['CONTRACT_PACKAGE_ACQUISITION'].includes(missionType)) checkpoints.splice(4, 0, notApplicable('CANONICAL PERSISTENCE'));
+
+  const lastConfirmedIndex = checkpoints.reduce((last, item, index) => item.status === 'CONFIRMED' ? index : last, -1);
+  const firstUnconfirmedAfterLast = checkpoints.find((item, index) => index > lastConfirmedIndex && item.status === 'NOT CONFIRMED');
+  const lastConfirmed = lastConfirmedIndex >= 0 ? checkpoints[lastConfirmedIndex] : null;
+
+  return {
+    diagnostic_policy: 'NO TROUBLESHOOTING BY INFERENCE WHEN A MISSION REPORT CAN IDENTIFY THE LAST CONFIRMED CHECKPOINT.',
+    mission_type: missionType || base.NOT_REPORTED,
+    last_confirmed_checkpoint: lastConfirmed?.checkpoint || base.NOT_REPORTED,
+    next_unconfirmed_checkpoint: firstUnconfirmedAfterLast?.checkpoint || (terminal ? 'NONE — TERMINAL' : base.NOT_REPORTED),
+    troubleshooting_start_point: firstUnconfirmedAfterLast?.checkpoint || lastConfirmed?.checkpoint || base.NOT_REPORTED,
+    checkpoints,
+    evidence_labels: {
+      current_run: 'Authoritative for current execution state.',
+      existing_baseline: 'Context only; never credited as current-run execution.',
+      derived_analysis: 'Derived only from evidence read for this report.',
+      not_reported: 'Unknown; never converted to zero or success.'
+    }
+  };
+}
+
 export function buildMissionReport(context, options = {}) {
   const hardenedContext = {
     ...context,
@@ -52,6 +185,17 @@ export function buildMissionReport(context, options = {}) {
   report.operator_actions = operatorActions.length
     ? operatorActions
     : [{ action: base.NOT_REPORTED, timestamp: base.NOT_REPORTED, evidence_source: base.NOT_REPORTED }];
+
+  report.diagnostic_trace = missionType === 'ACQUISITION_DISCOVERY'
+    ? acquisitionDiagnosticTrace(hardenedContext, report)
+    : genericDiagnosticTrace(hardenedContext, missionType);
+
+  report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.1-DIAGNOSTIC';
+  report.evidence_appendix = {
+    ...(report.evidence_appendix || {}),
+    diagnostic_rule: 'CURRENT RUN evidence defines the troubleshooting checkpoint. EXISTING BASELINE may explain configuration but cannot prove present execution.',
+    diagnostic_trace_version: 'APIE-DIAGNOSTIC-TRACE-1.0'
+  };
 
   return report;
 }
