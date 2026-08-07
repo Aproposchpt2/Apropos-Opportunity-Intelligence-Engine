@@ -1,0 +1,52 @@
+name: Persist Cal eProcure Validation Artifact
+
+on:
+  push:
+    branches:
+      - caleprocure-persistence-validation-001
+    paths:
+      - .github/workflows/persist-caleprocure-validation-artifact.yml
+      - scripts/acquire-caleprocure-package-batch.mjs
+      - .github/workflows/acquire-caleprocure-package-batch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: caleprocure-package-acquisition
+  cancel-in-progress: false
+
+jobs:
+  acquire_batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      BATCH_SIZE: '5'
+    steps:
+      - name: Check out validation branch
+        run: |
+          git clone --depth 1 --branch caleprocure-persistence-validation-001 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repository
+
+      - name: Set up Node.js 20
+        run: |
+          if [ -x /opt/hostedtoolcache/node/20.20.2/x64/bin/node ]; then
+            echo "/opt/hostedtoolcache/node/20.20.2/x64/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Install dependencies
+        working-directory: repository
+        run: npm install
+
+      - name: Install Chromium
+        working-directory: repository
+        run: npx playwright install --with-deps chromium
+
+      - name: Execute queue-driven package batch
+        working-directory: repository
+        run: node scripts/acquire-caleprocure-package-batch.mjs

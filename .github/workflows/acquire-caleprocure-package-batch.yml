@@ -1,0 +1,52 @@
+name: Acquire Cal eProcure Package Batch
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - caleprocure-persistence-validation-001
+    paths:
+      - scripts/acquire-caleprocure-package-batch.mjs
+      - .github/workflows/acquire-caleprocure-package-batch.yml
+
+concurrency:
+  group: caleprocure-package-acquisition-v2
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Acquire and persist five Cal eProcure packages
+        run: node scripts/acquire-caleprocure-package-batch.mjs
+
+      - name: Upload acquisition evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caleprocure-package-batch-${{ github.run_id }}
+          path: |
+            caleprocure-package-batch-result.json
+            artifacts/caleprocure-package-batch/**
+          if-no-files-found: warn
+          retention-days: 30
+
+# Concurrency generation v2 releases the stale lock held by workflow 31132388209.
