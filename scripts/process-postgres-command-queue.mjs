@@ -51,6 +51,34 @@ async function finish(queueId, success, result = {}, error = null) {
   });
 }
 
+function installAcquisitionCompatibilityFetch() {
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    let url = typeof input === 'string' ? input : input?.url;
+    let nextInit = init;
+
+    if (typeof url === 'string' && url.includes('/rest/v1/acquisition_raw_records?')) {
+      const parsed = new URL(url);
+      if (parsed.searchParams.get('on_conflict') === 'publisher_id,source_record_id,source_fingerprint') {
+        parsed.searchParams.set('on_conflict', 'acquisition_run_id,publisher_id,source_record_id,source_fingerprint');
+        url = parsed.toString();
+      }
+    }
+
+    if (typeof url === 'string' && url.includes('/rest/v1/rpc/aadp_route_pending_raw_records')) {
+      try {
+        const body = nextInit?.body ? JSON.parse(nextInit.body) : {};
+        if (!Object.prototype.hasOwnProperty.call(body, 'p_acquisition_run_id')) {
+          nextInit = { ...nextInit, body: JSON.stringify({ ...body, p_acquisition_run_id: null }) };
+        }
+      } catch {}
+    }
+
+    return nativeFetch(url || input, nextInit);
+  };
+  return () => { globalThis.fetch = nativeFetch; };
+}
+
 async function runAcquisitionDiscovery(job) {
   const payload = job.payload || {};
   const evidence = payload.execution_evidence || {};
@@ -66,31 +94,39 @@ async function runAcquisitionDiscovery(job) {
 
   const localPassword = `queue-${randomUUID()}`;
   process.env.EXECUTIVE_AUTH_HASH = createHash('sha256').update(localPassword).digest('hex');
+  const restoreFetch = installAcquisitionCompatibilityFetch();
 
-  const { handler } = await import('../netlify/functions/command-acquisition-worker-background.js');
-  const event = {
-    httpMethod: 'POST',
-    headers: { 'x-dashboard-password': localPassword },
-    body: JSON.stringify({
-      command_run_id: commandRunId,
-      state_code: stateCode,
-      publisher_scope: publisherScope,
-      publisher_id: publisherId
-    })
-  };
+  try {
+    const { handler } = await import('../netlify/functions/command-acquisition-worker-background.js');
+    const event = {
+      httpMethod: 'POST',
+      headers: { 'x-dashboard-password': localPassword },
+      body: JSON.stringify({
+        command_run_id: commandRunId,
+        state_code: stateCode,
+        publisher_scope: publisherScope,
+        publisher_id: publisherId
+      })
+    };
 
-  await heartbeat(queueId, 'GITHUB_ACQUISITION_DISCOVERY_RUNNING');
-  const response = await handler(event);
-  const statusCode = Number(response?.statusCode || 500);
-  let body = {};
-  try { body = response?.body ? JSON.parse(response.body) : {}; }
-  catch { body = { raw_body: response?.body || '' }; }
+    await heartbeat(queueId, 'GITHUB_ACQUISITION_DISCOVERY_RUNNING');
+    const response = await handler(event);
+    const statusCode = Number(response?.statusCode || 500);
+    let body = {};
+    try { body = response?.body ? JSON.parse(response.body) : {}; }
+    catch { body = { raw_body: response?.body || '' }; }
 
-  if (statusCode < 200 || statusCode >= 300) {
-    throw new Error(`Acquisition discovery worker returned HTTP ${statusCode}: ${JSON.stringify(body)}`);
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new Error(`Acquisition discovery worker returned HTTP ${statusCode}: ${JSON.stringify(body)}`);
+    }
+    if (Number(body?.failures || 0) > 0 || body?.routing_result?.error) {
+      throw new Error(`Acquisition discovery completed with runtime defects: ${JSON.stringify({ failures: body?.failures || 0, failure_details: body?.failure_details || [], routing_result: body?.routing_result || {} })}`);
+    }
+
+    return { status_code: statusCode, ...body };
+  } finally {
+    restoreFetch();
   }
-
-  return { status_code: statusCode, ...body };
 }
 
 async function executeJob(job) {
