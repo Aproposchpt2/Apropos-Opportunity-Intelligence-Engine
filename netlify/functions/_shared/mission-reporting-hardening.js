@@ -186,15 +186,34 @@ export function buildMissionReport(context, options = {}) {
     ? operatorActions
     : [{ action: base.NOT_REPORTED, timestamp: base.NOT_REPORTED, evidence_source: base.NOT_REPORTED }];
 
+  const executionTeam = hardenedContext.mission?.mission_config?.execution_team || hardenedContext.run?.execution_evidence?.execution_team || null;
+  report.agent_team = executionTeam ? {
+    evidence_label: 'CURRENT RUN',
+    institutional_model: executionTeam.model || 'POSTGRES_CHECKPOINTED_STAGE_OWNERSHIP',
+    version: executionTeam.version || hardenedContext.run?.execution_evidence?.execution_team_version || base.NOT_REPORTED,
+    team_label: executionTeam.team_label || base.NOT_REPORTED,
+    lead_agent: executionTeam.lead_agent || hardenedContext.run?.assigned_agent || base.NOT_REPORTED,
+    agent_count: executionTeam.agent_count || executionTeam.agents?.length || base.NOT_REPORTED,
+    exchange_medium: executionTeam.exchange_medium || 'SUPABASE_POSTGRES',
+    concurrency_policy: executionTeam.concurrency_policy || base.NOT_REPORTED,
+    stage_owners: executionTeam.agents || [],
+    governance_rule: 'Agents own bounded stages. PostgreSQL owns the mission, checkpoint state, retries, and evidence continuity.'
+  } : {
+    evidence_label: 'NOT REPORTED',
+    institutional_model: base.NOT_REPORTED,
+    note: 'This run predates or did not pass through the APIE multi-agent mission-control wrapper.'
+  };
+
   report.diagnostic_trace = missionType === 'ACQUISITION_DISCOVERY'
     ? acquisitionDiagnosticTrace(hardenedContext, report)
     : genericDiagnosticTrace(hardenedContext, missionType);
 
-  report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.1-DIAGNOSTIC';
+  report.report_metadata.report_generator_version = 'APIE-MISSION-REPORTING-1.2-MULTI-AGENT-DIAGNOSTIC';
   report.evidence_appendix = {
     ...(report.evidence_appendix || {}),
     diagnostic_rule: 'CURRENT RUN evidence defines the troubleshooting checkpoint. EXISTING BASELINE may explain configuration but cannot prove present execution.',
-    diagnostic_trace_version: 'APIE-DIAGNOSTIC-TRACE-1.0'
+    diagnostic_trace_version: 'APIE-DIAGNOSTIC-TRACE-1.0',
+    multi_agent_governance_version: 'APIE-MULTI-AGENT-1.0'
   };
 
   return report;
