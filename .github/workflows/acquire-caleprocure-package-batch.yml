@@ -11,7 +11,7 @@ on:
       - .github/workflows/acquire-caleprocure-package-batch.yml
 
 concurrency:
-  group: caleprocure-package-acquisition
+  group: caleprocure-package-acquisition-v2
   cancel-in-progress: false
 
 jobs:
@@ -49,4 +49,4 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-# Run-state compatibility repair verified 2026-08-06
+# Concurrency generation v2 releases the stale lock held by workflow 31132388209.
