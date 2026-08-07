@@ -55,17 +55,15 @@ async function runAcquisitionDiscovery(job) {
   const payload = job.payload || {};
   const evidence = payload.execution_evidence || {};
   const commandRunId = job.command_run_id;
+  const queueId = job.queue_id;
   const stateCode = String(payload.state_code || evidence.state_code || '').toUpperCase();
   const publisherScope = String(evidence.publisher_scope || payload.publisher_scope || 'ALL').toUpperCase();
   const publisherId = evidence.publisher_id || payload.publisher_id || null;
 
-  if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode)) {
-    throw new Error('Queued acquisition discovery job is missing command_run_id or state_code.');
+  if (!queueId || !commandRunId || !/^[A-Z]{2}$/.test(stateCode)) {
+    throw new Error('Queued acquisition discovery job is missing queue_id, command_run_id, or state_code.');
   }
 
-  // Reuse the existing native acquisition implementation directly inside the
-  // GitHub runner. This does not invoke Netlify and therefore is not subject
-  // to Netlify request/background-function execution limits.
   const localPassword = `queue-${randomUUID()}`;
   process.env.EXECUTIVE_AUTH_HASH = createHash('sha256').update(localPassword).digest('hex');
 
@@ -81,7 +79,7 @@ async function runAcquisitionDiscovery(job) {
     })
   };
 
-  await heartbeat(job.id, 'GITHUB_ACQUISITION_DISCOVERY_RUNNING');
+  await heartbeat(queueId, 'GITHUB_ACQUISITION_DISCOVERY_RUNNING');
   const response = await handler(event);
   const statusCode = Number(response?.statusCode || 500);
   let body = {};
@@ -117,31 +115,32 @@ async function processOne() {
     return false;
   }
 
-  console.log(`POSTGRES_QUEUE_CLAIMED ${claimed.id} ${claimed.command_run_id} ${claimed.mission_type_key}`);
+  if (!claimed.queue_id) throw new Error('Claim RPC returned a job without queue_id.');
+  console.log(`POSTGRES_QUEUE_CLAIMED ${claimed.queue_id} ${claimed.command_run_id} ${claimed.mission_type_key}`);
   const timer = setInterval(() => {
-    heartbeat(claimed.id, 'GITHUB_WORKER_HEARTBEAT').catch(error => {
+    heartbeat(claimed.queue_id, 'GITHUB_WORKER_HEARTBEAT').catch(error => {
       console.error(`Heartbeat failed: ${error.message}`);
     });
   }, Math.max(30_000, Math.floor((LEASE_SECONDS * 1000) / 3)));
 
   try {
     const result = await executeJob(claimed);
-    await heartbeat(claimed.id, 'GITHUB_WORKER_FINALIZING');
-    await finish(claimed.id, true, {
+    await heartbeat(claimed.queue_id, 'GITHUB_WORKER_FINALIZING');
+    await finish(claimed.queue_id, true, {
       worker_id: WORKER_ID,
       github_run_id: process.env.GITHUB_RUN_ID || null,
       github_sha: process.env.GITHUB_SHA || null,
       result
     }, null);
-    console.log(`POSTGRES_QUEUE_COMPLETED ${claimed.id}`);
+    console.log(`POSTGRES_QUEUE_COMPLETED ${claimed.queue_id}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await finish(claimed.id, false, {
+    await finish(claimed.queue_id, false, {
       worker_id: WORKER_ID,
       github_run_id: process.env.GITHUB_RUN_ID || null,
       github_sha: process.env.GITHUB_SHA || null
     }, message).catch(finishError => console.error(`Finish RPC failed: ${finishError.message}`));
-    console.error(`POSTGRES_QUEUE_FAILED ${claimed.id}: ${message}`);
+    console.error(`POSTGRES_QUEUE_FAILED ${claimed.queue_id}: ${message}`);
     throw error;
   } finally {
     clearInterval(timer);
