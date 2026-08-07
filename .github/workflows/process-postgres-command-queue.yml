@@ -1,0 +1,40 @@
+name: Process PostgreSQL Command Queue
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/process-postgres-command-queue.mjs
+      - .github/workflows/process-postgres-command-queue.yml
+      - netlify/functions/command-acquisition-worker-background.js
+  schedule:
+    - cron: '*/5 * * * *'
+
+concurrency:
+  group: apie-postgres-command-queue
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      POSTGRES_QUEUE_MAX_JOBS: '1'
+      POSTGRES_QUEUE_LEASE_SECONDS: '900'
+      POSTGRES_QUEUE_WORKER_ID: github-actions:${{ github.run_id }}:${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate PostgreSQL queue worker
+        run: node --check scripts/process-postgres-command-queue.mjs
+
+      - name: Claim and process next PostgreSQL command
+        run: node scripts/process-postgres-command-queue.mjs
