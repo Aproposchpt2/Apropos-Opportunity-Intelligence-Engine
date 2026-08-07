@@ -252,3 +252,10 @@ window.AP_COMMAND_CONFIG = Object.freeze({
     refreshFlow();
   });
 })();
+
+(() => {
+  const script = document.createElement('script');
+  script.src = 'assets/multi-agent-ui.js';
+  script.defer = true;
+  document.head.appendChild(script);
+})();
