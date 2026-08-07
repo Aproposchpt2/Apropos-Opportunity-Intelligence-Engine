@@ -8,6 +8,7 @@ import {
   verifyDashboardToken
 } from './_shared/native-runtime.js';
 import {
+  attachReportHash,
   buildMissionReport,
   isTerminalOutcome,
   reportHash,
@@ -27,7 +28,11 @@ function authenticatedOperator(event) {
 async function safeRead(name, request, readFailures, sourceStatus) {
   try {
     const rows = await db(request);
-    sourceStatus.push({ source: name, status: 'READ', records: Array.isArray(rows) ? rows.length : (rows ? 1 : 0) });
+    sourceStatus.push({
+      source: name,
+      status: 'READ',
+      records: Array.isArray(rows) ? rows.length : (rows ? 1 : 0)
+    });
     return rows || [];
   } catch (error) {
     readFailures.push({ source: name, error: error instanceof Error ? error.message : String(error) });
@@ -39,10 +44,28 @@ async function safeRead(name, request, readFailures, sourceStatus) {
 async function loadContext(commandRunId) {
   const readFailures = [];
   const sourceStatus = [];
-  const run = (await safeRead('command_runs', `command_runs?id=eq.${enc(commandRunId)}&select=*`, readFailures, sourceStatus))?.[0];
+  const run = (await safeRead(
+    'command_runs',
+    `command_runs?id=eq.${enc(commandRunId)}&select=*`,
+    readFailures,
+    sourceStatus
+  ))?.[0];
   if (!run) return { notFound: true, readFailures, sourceStatus };
 
-  const [missions, commandStages, unifiedStages, tasks, events, failures, metrics, audit, existingReports, acquisitionRuns, discoveryRuns, scheduleRuns] = await Promise.all([
+  const [
+    missions,
+    commandStages,
+    unifiedStages,
+    tasks,
+    events,
+    failures,
+    metrics,
+    audit,
+    existingReports,
+    acquisitionRuns,
+    discoveryRuns,
+    scheduleRuns
+  ] = await Promise.all([
     safeRead('command_missions', `command_missions?command_run_id=eq.${enc(commandRunId)}&select=*&order=created_at.desc&limit=1`, readFailures, sourceStatus),
     safeRead('command_stage_projection', `command_stage_projection?command_run_id=eq.${enc(commandRunId)}&select=*&order=sequence_number.asc`, readFailures, sourceStatus),
     safeRead('command_unified_stage_projection', `command_unified_stage_projection?command_run_id=eq.${enc(commandRunId)}&select=*&order=updated_at.asc`, readFailures, sourceStatus),
@@ -82,7 +105,8 @@ async function loadContext(commandRunId) {
 
   const evidence = run.execution_evidence || {};
   const publisherId = evidence.publisher_id || mission?.mission_config?.publisher_id || null;
-  const assignmentId = run.publisher_assignment_id || evidence.assignment_id || mission?.mission_config?.assignment_id || acquisitionRuns[0]?.assignment_id || null;
+  const assignmentId = run.publisher_assignment_id || evidence.assignment_id ||
+    mission?.mission_config?.assignment_id || acquisitionRuns[0]?.assignment_id || null;
 
   let assignment = null;
   if (assignmentId) assignment = (await safeRead(
@@ -97,7 +121,8 @@ async function loadContext(commandRunId) {
   let connectorRows = [];
   if (resolvedPublisherId) {
     [publisher, connectorRows] = await Promise.all([
-      safeRead('publisher_registry', `publisher_registry?id=eq.${enc(resolvedPublisherId)}&select=*`, readFailures, sourceStatus).then(rows => rows[0] || null),
+      safeRead('publisher_registry', `publisher_registry?id=eq.${enc(resolvedPublisherId)}&select=*`, readFailures, sourceStatus)
+        .then(rows => rows[0] || null),
       safeRead('connector_acceptance_registry', `connector_acceptance_registry?publisher_id=eq.${enc(resolvedPublisherId)}&select=*&order=updated_at.desc`, readFailures, sourceStatus)
     ]);
   }
@@ -143,8 +168,12 @@ async function loadContext(commandRunId) {
     sourceStatus
   );
 
-  const currentConnectorEvidence = connectorRows.filter(item => String(item.last_command_run_id || '') === String(commandRunId));
-  const baselineConnectorEvidence = connectorRows.filter(item => String(item.last_command_run_id || '') !== String(commandRunId));
+  const currentConnectorEvidence = connectorRows.filter(item =>
+    String(item.last_command_run_id || '') === String(commandRunId)
+  );
+  const baselineConnectorEvidence = connectorRows.filter(item =>
+    String(item.last_command_run_id || '') !== String(commandRunId)
+  );
 
   return {
     run,
@@ -184,14 +213,17 @@ function productionEvidence() {
   return {
     commit: env('COMMIT_REF') || env('HEAD') || NOT_REPORTED,
     deployId: env('DEPLOY_ID') || NOT_REPORTED,
-    url: env('DEPLOY_PRIME_URL') || env('DEPLOY_URL') || env('URL') || NOT_REPORTED,
+    url: env('URL') || env('DEPLOY_PRIME_URL') || env('DEPLOY_URL') || NOT_REPORTED,
+    deploymentUrl: env('DEPLOY_PRIME_URL') || env('DEPLOY_URL') || env('URL') || NOT_REPORTED,
     context: env('CONTEXT') || NOT_REPORTED
   };
 }
 
 function storedPayload(row) {
+  const report = structuredClone(row.report_data);
+  attachReportHash(report, row.report_hash);
   return {
-    report: row.report_data,
+    report,
     storage: {
       id: row.id,
       command_run_id: row.command_run_id,
@@ -206,6 +238,60 @@ function storedPayload(row) {
     },
     persisted: true
   };
+}
+
+function generatedPayload(report, hash, context, version, state, generatedAt) {
+  attachReportHash(report, hash);
+  return {
+    report,
+    storage: {
+      id: NOT_REPORTED,
+      command_run_id: context.run.id,
+      mission_type_key: context.run.mission_type_key,
+      report_version: version,
+      report_state: state,
+      report_hash: hash,
+      generated_at: generatedAt,
+      supersedes_report_id: NOT_REPORTED
+    },
+    persisted: false
+  };
+}
+
+async function insertReport({
+  id,
+  commandRunId,
+  missionTypeKey,
+  version,
+  state,
+  report,
+  hash,
+  generatedAt,
+  finalizedAt = null,
+  amendedAt = null,
+  amendmentReason = null,
+  supersedesReportId = null,
+  createdBy
+}) {
+  const inserted = await db('mission_execution_reports', {
+    method: 'POST',
+    body: JSON.stringify({
+      id,
+      command_run_id: commandRunId,
+      mission_type_key: missionTypeKey,
+      report_version: version,
+      report_state: state,
+      report_data: report,
+      report_hash: hash,
+      generated_at: generatedAt,
+      finalized_at: finalizedAt,
+      amended_at: amendedAt,
+      amendment_reason: amendmentReason,
+      supersedes_report_id: supersedesReportId,
+      created_by: createdBy
+    })
+  });
+  return inserted[0];
 }
 
 export const handler = async event => {
@@ -226,11 +312,12 @@ export const handler = async event => {
       const existing = reports.find(item => Number(item.report_version) === requestedVersion);
       return existing
         ? response(200, storedPayload(existing))
-        : response(404, { error: 'Report version not found', command_run_id: commandRunId, report_version: requestedVersion });
+        : response(404, {
+          error: 'Report version not found',
+          command_run_id: commandRunId,
+          report_version: requestedVersion
+        });
     }
-
-    const action = String(body.action || 'read').trim().toLowerCase();
-    if (action !== 'amend' && reports.length) return response(200, storedPayload(reports[0]));
 
     const context = await loadContext(commandRunId);
     if (context.notFound) return response(404, { error: 'Report not found', command_run_id: commandRunId });
@@ -249,20 +336,24 @@ export const handler = async event => {
       source_failures: context.readFailures
     });
 
+    const action = String(body.action || 'read').trim().toLowerCase();
     const terminal = isTerminalOutcome(context.run.status || context.run.aadp_state);
+    const latest = reports[0] || null;
 
     if (action === 'amend') {
       if (!terminal) return response(409, { error: 'Only terminal reports may be amended.' });
       const reason = String(body.amendment_reason || '').trim();
       if (!reason) return response(400, { error: 'amendment_reason required' });
-      if (!reports.length) return response(409, { error: 'A FINAL report must exist before an amendment can be created.' });
+      if (!latest || !['FINAL', 'AMENDED'].includes(String(latest.report_state).toUpperCase())) {
+        return response(409, { error: 'A FINAL report must exist before an amendment can be created.' });
+      }
 
-      const latest = reports[0];
       const original = reports.at(-1);
       const nextVersion = Number(latest.report_version) + 1;
+      const generatedAt = new Date().toISOString();
       const id = randomUUID();
       const report = buildMissionReport(context, {
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${nextVersion}`,
         reportVersion: nextVersion,
         reportState: 'AMENDED',
@@ -273,70 +364,74 @@ export const handler = async event => {
         production: productionEvidence()
       });
       const hash = reportHash(report);
-      const inserted = await db('mission_execution_reports', {
-        method: 'POST',
-        body: JSON.stringify({
-          id,
-          command_run_id: commandRunId,
-          mission_type_key: context.run.mission_type_key,
-          report_version: nextVersion,
-          report_state: 'AMENDED',
-          report_data: report,
-          report_hash: hash,
-          generated_at: report.report_metadata.generated_at,
-          finalized_at: latest.finalized_at,
-          amended_at: report.report_metadata.generated_at,
-          amendment_reason: reason,
-          supersedes_report_id: latest.id,
-          created_by: operator.email
-        })
+      attachReportHash(report, hash);
+      const inserted = await insertReport({
+        id,
+        commandRunId,
+        missionTypeKey: context.run.mission_type_key,
+        version: nextVersion,
+        state: 'AMENDED',
+        report,
+        hash,
+        generatedAt,
+        finalizedAt: latest.finalized_at,
+        amendedAt: generatedAt,
+        amendmentReason: reason,
+        supersedesReportId: latest.id,
+        createdBy: operator.email
       });
-      return response(200, storedPayload(inserted[0]));
+      return response(200, storedPayload(inserted));
+    }
+
+    if (!terminal && latest?.report_state === 'DRAFT') return response(200, storedPayload(latest));
+    if (terminal && ['FINAL', 'AMENDED'].includes(String(latest?.report_state || '').toUpperCase())) {
+      return response(200, storedPayload(latest));
     }
 
     const generatedAt = new Date().toISOString();
-    const version = reports.length ? Number(reports[0].report_version) : 1;
+    const nextVersion = latest ? Number(latest.report_version) + 1 : 1;
     const reportState = terminal ? 'FINAL' : 'DRAFT';
     const report = buildMissionReport(context, {
       generatedAt,
-      reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${version}`,
-      reportVersion: version,
+      reportId: `MR-${commandRunId.slice(0, 8).toUpperCase()}-V${nextVersion}`,
+      reportVersion: nextVersion,
       reportState,
+      supersedesReportId: latest?.id || NOT_REPORTED,
+      finalizedAt: terminal ? generatedAt : undefined,
       production: productionEvidence()
     });
     const hash = reportHash(report);
+    attachReportHash(report, hash);
 
-    if (!terminal) return response(200, {
-      report,
-      storage: {
-        id: NOT_REPORTED,
+    const persistDraft = action === 'capture' || body.persist_draft === true;
+    if (!terminal && !persistDraft) {
+      return response(200, generatedPayload(report, hash, context, nextVersion, 'DRAFT', generatedAt));
+    }
+
+    if (!terminal && reports.length) {
+      return response(409, {
+        error: 'An immutable DRAFT version already exists for this run.',
+        code: 'DRAFT_ALREADY_PRESERVED',
         command_run_id: commandRunId,
-        mission_type_key: context.run.mission_type_key,
-        report_version: version,
-        report_state: 'DRAFT',
-        report_hash: hash,
-        generated_at: generatedAt
-      },
-      persisted: false
-    });
+        report_version: latest.report_version
+      });
+    }
 
     const id = randomUUID();
-    const inserted = await db('mission_execution_reports', {
-      method: 'POST',
-      body: JSON.stringify({
-        id,
-        command_run_id: commandRunId,
-        mission_type_key: context.run.mission_type_key,
-        report_version: 1,
-        report_state: 'FINAL',
-        report_data: report,
-        report_hash: hash,
-        generated_at: generatedAt,
-        finalized_at: generatedAt,
-        created_by: operator.email
-      })
+    const inserted = await insertReport({
+      id,
+      commandRunId,
+      missionTypeKey: context.run.mission_type_key,
+      version: nextVersion,
+      state: reportState,
+      report,
+      hash,
+      generatedAt,
+      finalizedAt: terminal ? generatedAt : null,
+      supersedesReportId: latest?.id || null,
+      createdBy: operator.email
     });
-    return response(200, storedPayload(inserted[0]));
+    return response(200, storedPayload(inserted));
   } catch (error) {
     if (error?.code === '23505') {
       const reports = await storedReports(commandRunId);
