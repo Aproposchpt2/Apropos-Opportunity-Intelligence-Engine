@@ -7,7 +7,7 @@ const MISSION_ADAPTERS = Object.freeze({
   VERIFY_PUBLISHER_CONNECTION: { agent: 'Publisher Engineering', label: 'Verify Publisher Connection', worker: 'command-verify-publisher-connection-background', kind: 'publisher_verification' },
   ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: null, kind: 'acquisition' },
   CONTRACT_PACKAGE_ACQUISITION: { agent: 'AADP Package Acquisition', label: 'Complete Contract Packages', worker: 'command-contract-package-worker-background', kind: 'package' },
-  PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Discovery', worker: 'command-publisher-expansion-worker-background', kind: 'publisher' },
+  PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Discovery', worker: null, kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
   OPPORTUNITY_PARTNER_DISCOVERY: { agent: 'Opportunity Partner Discovery', label: 'Opportunity Partner Discovery', worker: 'command-opportunity-partner-discovery-worker-background', kind: 'research' },
   INSTITUTIONAL_BUYER_DISCOVERY: { agent: 'Institutional Buyer Discovery', label: 'Institutional Buyer Discovery', worker: 'command-institutional-buyer-discovery-worker-background', kind: 'research' }
@@ -102,6 +102,62 @@ async function createPublisherAcquisitionRun({ publisher, stateCode, countyName,
   return { run, mission: missionRows?.[0] || null, configuration };
 }
 
+async function createPublisherDiscoveryRun({ stateCode, countyName, countyFips, discoveryScope, adapter, missionName }) {
+  const createdAt = now();
+  const configuration = {
+    discovery_scope: discoveryScope,
+    county_name: countyName,
+    county_fips: countyFips,
+    geographic_scope: 'COUNTY',
+    autonomous_research: true,
+    platform_classification_required: true,
+    mission_adapter: 'GITHUB_ACTIONS_PUBLISHER_DISCOVERY',
+    execution_model: 'CHECKPOINTED_ENTITY_CLASS_GITHUB_LOOP',
+    dispatch_model: 'SUPABASE_POSTGRES_QUEUE',
+    checkpointed: true
+  };
+  const runRows = await db('command_runs', { method: 'POST', body: JSON.stringify({
+    idempotency_key: `ecc:PUBLISHER_DISCOVERY:${stateCode}:${discoveryScope}:${randomUUID()}`,
+    status: 'queued',
+    current_stage: 'POSTGRES_EXECUTION_REQUESTED',
+    aadp_state: 'QUEUED',
+    mission_type_key: 'PUBLISHER_DISCOVERY',
+    mission_name: missionName,
+    state_code: stateCode,
+    assigned_agent: adapter.agent,
+    started_at: createdAt,
+    last_activity_at: createdAt,
+    progress_mode: 'STAGE',
+    progress_value: 5,
+    execution_evidence: {
+      source: 'EXECUTIVE_COMMAND_CENTER',
+      runtime: 'SUPABASE_POSTGRES',
+      operator_authorized: true,
+      ...configuration,
+      assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION'
+    }
+  }) });
+  const run = runRows?.[0];
+  if (!run?.id) throw new Error('Publisher Discovery command run creation failed.');
+  const missionRows = await db('command_missions', { method: 'POST', body: JSON.stringify({
+    mission_type_key: 'PUBLISHER_DISCOVERY',
+    mission_name: missionName,
+    state_code: stateCode,
+    assigned_agent: adapter.agent,
+    authorization_state: 'AUTHORIZED',
+    authorization_required: true,
+    authorized_at: createdAt,
+    command_run_id: run.id,
+    mission_config: {
+      source: 'EXECUTIVE_COMMAND_CENTER',
+      runtime: 'SUPABASE_POSTGRES',
+      ...configuration,
+      assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION'
+    }
+  }) });
+  return { run, mission: missionRows?.[0] || null, configuration };
+}
+
 export const handler = async event => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
@@ -146,6 +202,20 @@ export const handler = async event => {
         active_run_id: active.id,
         active_stage: active.current_stage,
         last_activity_at: active.last_activity_at
+      });
+      const missionName = txt(body.mission_name || `${adapter.label} — ${stateCode} — ${countyName}`);
+      const created = await createPublisherDiscoveryRun({ stateCode, countyName, countyFips, discoveryScope, adapter, missionName });
+      return response(202, {
+        mission: created.mission,
+        run: created.run,
+        execution: {
+          runtime: 'SUPABASE_POSTGRES',
+          worker: 'GITHUB_ACTIONS',
+          dispatch_status: 'QUEUED',
+          assigned_agent: adapter.agent,
+          discovery_scope: discoveryScope,
+          queue_model: 'CHECKPOINTED_ENTITY_CLASS_GITHUB_LOOP'
+        }
       });
     }
 
@@ -224,13 +294,7 @@ export const handler = async event => {
             ? 'EAG_001_READ_ONLY'
             : 'CHECKPOINTED_COMPLETE_CONTRACT_PACKAGE'
         }
-      : adapter.kind === 'publisher'
-        ? {
-            discovery_scope: discoveryScope, county_name: countyName, county_fips: countyFips, geographic_scope: 'COUNTY',
-            autonomous_research: true, platform_classification_required: true, mission_adapter: adapter.worker,
-            execution_model: 'ONE_ENTITY_CLASS_PER_BACKGROUND_INVOCATION', checkpointed: true
-          }
-        : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
+      : { discovery_scope: discoveryScope, autonomous_research: true, mission_adapter: adapter.worker };
 
     const scopeKey = requestedPublisherScope || discoveryScope || countyScope || 'DEFAULT';
     const runRows = await db('command_runs', { method: 'POST', body: JSON.stringify({
