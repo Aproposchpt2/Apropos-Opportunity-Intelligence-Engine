@@ -10,7 +10,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 export const STORAGE_BUCKET = 'solicitation-packages';
 export const CALEPROCURE_HOME = 'https://caleprocure.ca.gov/pages/index.aspx';
 export const CALEPROCURE_SEARCH = 'https://caleprocure.ca.gov/psc/psfpd1_2/SUPPLIER/ERP/c/AUC_MANAGE_BIDS.AUC_RESP_INQ_AUC.GBL?EOPP.SCFName=EP_SCP_BIDDINGEVENTS&EOPP.SCLabel=My+Bidding+Events&EOPP.SCName=EP_SCP_SUPPLIER_PORTAL&EOPP.SCNode=ERP&EOPP.SCPTfname=EP_SCP_BIDDINGEVENTS&EOPP.SCPortal=SUPPLIER&EOPP.SCSecondary=true&FolderPath=PORTAL_ROOT_OBJECT.EP_SCP_SUPPLIER_PORTAL.EP_SCP_BIDDINGEVENTS&EOPP.SCPortal=SUPPLIER&EOPP.SCSecondary=true&NoCrumbs=yes&PORTALPARAM_PTCNAV=EP_SCP_AUC_RESP_INQ_AUC&PortalRegistryName=SUPPLIER&pslnkid=EP_SCP_AUC_RESP_INQ_AUC';
-export const TARGET_COMPLETIONS = 5;
+const requestedTarget = Number(process.env.TARGET_COMPLETIONS || 5);
+export const TARGET_COMPLETIONS = Number.isFinite(requestedTarget)
+  ? Math.max(1, Math.min(Math.trunc(requestedTarget), 5))
+  : 5;
 export const MAX_SESSION_ATTEMPTS = 3;
 export const CANDIDATE_POOL_LIMIT = 30;
 export const ARTIFACT_ROOT = path.resolve('artifacts', 'caleprocure-package-batch');
