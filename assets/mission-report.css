@@ -356,3 +356,73 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   a { color: inherit; text-decoration: none; }
   .report-footer { break-inside: avoid; }
 }
+
+@media screen {
+  :root {
+    --soft-white: rgba(255, 255, 255, .055);
+    --text: #eef4fb;
+    --slate: #aebccf;
+    --champagne: rgba(255, 255, 255, .14);
+    --gold: #7dd3fc;
+    --section-navy: #7dd3fc;
+    --shadow: 0 20px 50px rgba(2, 8, 20, .4);
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 18% 8%, rgba(125, 211, 252, .16), transparent 32%),
+      radial-gradient(circle at 84% 14%, rgba(167, 243, 208, .10), transparent 26%),
+      radial-gradient(circle at 55% 95%, rgba(99, 140, 220, .14), transparent 32%),
+      linear-gradient(160deg, #050b18, #0c1a30 55%, #0a1730);
+    background-attachment: fixed;
+  }
+
+  .report-hero { border-color: rgba(255, 255, 255, .18); }
+  .report-hero p { color: #c7d2e2; }
+  .report-state-block > span { color: #9fb2c9; }
+  .report-state-block small { color: #c7d2e2; }
+
+  .status-final, .status-completed { color: #6ee7a0; }
+  .status-amended { color: #ffd873; }
+  .status-draft { color: #ffe6a8; }
+  .status-failed, .status-blocked, .status-stopped { color: #ff9d97; }
+
+  .report-controls button,
+  .registry-actions button,
+  .registry-card a.action-link {
+    background: rgba(255, 255, 255, .07);
+    border-color: rgba(255, 255, 255, .22);
+    color: var(--text);
+  }
+  .report-controls button:first-child,
+  .registry-actions button:first-child {
+    background: linear-gradient(135deg, #7dd3fc, #a7f3d0);
+    color: #03111d;
+    border-color: transparent;
+  }
+
+  .report-card {
+    background: var(--soft-white);
+    border-color: var(--champagne);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .field { background: rgba(255, 255, 255, .03); }
+  .evidence-block.not-reported { border-left-color: #8fa0b8; }
+  .evidence-badge { background: rgba(255, 255, 255, .07); color: var(--text); }
+
+  .report-table th { border-color: rgba(255, 255, 255, .16); }
+  .report-table td { border-color: var(--champagne); }
+  .report-table tr:nth-child(even) td { background: rgba(255, 255, 255, .03); }
+
+  .json-value { background: rgba(2, 6, 23, .5); }
+
+  .report-error { background: var(--soft-white); border-color: #ff9d97; }
+  .report-error h2 { color: #ff9d97; }
+
+  .registry-filters { background: var(--soft-white); border-color: var(--champagne); }
+  .registry-filters input { background: rgba(2, 6, 23, .5); border-color: var(--champagne); color: var(--text); }
+
+  .ecc-sidebar-footer button { color: #7dd3fc; }
+}

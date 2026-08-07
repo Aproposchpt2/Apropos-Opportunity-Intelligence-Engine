@@ -2,17 +2,19 @@
 
 #gateOverlay.gate-visible{
   background:
-    linear-gradient(rgba(23,35,53,.97),rgba(23,35,53,.98)),
-    radial-gradient(circle at 85% 10%,rgba(214,178,115,.16),transparent 32rem);
+    linear-gradient(rgba(5,11,24,.97),rgba(10,23,48,.98)),
+    radial-gradient(circle at 85% 10%,rgba(125,211,252,.16),transparent 32rem);
 }
 
 .ecc-auth-shell{
   width:min(920px,100%);
   display:grid;
   grid-template-columns:minmax(0,1.08fr) minmax(280px,.92fr);
-  border:1px solid #415066;
-  background:#fff;
-  box-shadow:0 28px 90px rgba(0,0,0,.38);
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.055);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  box-shadow:0 28px 90px rgba(0,0,0,.45);
 }
 
 #gateOverlay .gate-panel{
@@ -21,6 +23,8 @@
   padding:2.5rem;
   border:0;
   box-shadow:none;
+  background:transparent;
+  backdrop-filter:none;
   text-align:left;
 }
 
@@ -30,19 +34,21 @@
   display:grid;
   place-items:center;
   margin-bottom:1.3rem;
-  background:var(--gold);
-  color:var(--navy);
+  background:linear-gradient(135deg,var(--gold),var(--gold-dark));
+  color:#03111d;
   font:500 1.65rem Georgia,"Bodoni Moda",serif;
 }
 
 #gateOverlay .gate-title{
   margin:.45rem 0 .65rem;
   font-size:clamp(2rem,4vw,2.85rem);
+  color:#fff;
 }
 
 #gateOverlay .gate-copy{
   max-width:480px;
   margin:0 0 1.5rem;
+  color:var(--muted);
 }
 
 #gateOverlay .gate-form{
@@ -52,7 +58,7 @@
 #gateOverlay .gate-form label{
   display:grid;
   gap:.4rem;
-  color:#66717f;
+  color:#9fb2c9;
   font-size:.62rem;
   font-weight:800;
   letter-spacing:.09em;
@@ -65,7 +71,7 @@
   padding:.78rem .85rem;
   border:1px solid var(--line-strong);
   border-radius:3px;
-  background:#fff;
+  background:rgba(2,6,23,.5);
   color:var(--ink);
   font-size:1rem;
   letter-spacing:normal;
@@ -73,8 +79,8 @@
 }
 
 #gateOverlay .gate-input:focus{
-  border-color:var(--gold-dark);
-  box-shadow:0 0 0 3px rgba(214,178,115,.14);
+  border-color:var(--gold);
+  box-shadow:0 0 0 3px rgba(125,211,252,.16);
 }
 
 #gateOverlay .gate-submit{
@@ -93,7 +99,7 @@
 }
 
 .ecc-auth-link:hover{
-  color:var(--navy);
+  color:#fff;
   text-decoration:underline;
 }
 
@@ -112,21 +118,21 @@
 }
 
 #gateOverlay .gate-error{
-  color:var(--red);
+  color:var(--danger);
 }
 
 #gateOverlay .gate-success{
   padding:.75rem .85rem;
-  border-left:3px solid var(--green);
-  background:var(--green-bg);
-  color:var(--green);
+  border-left:3px solid var(--success);
+  background:rgba(52,199,89,.14);
+  color:var(--success);
 }
 
 .ecc-auth-security{
   margin-top:1.3rem;
   padding-top:1rem;
   border-top:1px solid var(--line);
-  color:#7b8591;
+  color:#9fb2c9;
   font-size:.62rem;
   font-weight:800;
   letter-spacing:.08em;
@@ -140,13 +146,13 @@
   height:7px;
   margin-right:.5rem;
   border-radius:50%;
-  background:var(--green);
+  background:var(--success);
 }
 
 .ecc-auth-aside{
   padding:2.7rem 2.3rem;
   background:
-    linear-gradient(155deg,rgba(255,255,255,.035),transparent 45%),
+    linear-gradient(155deg,rgba(125,211,252,.08),transparent 45%),
     var(--navy);
   color:#fff;
   display:flex;
