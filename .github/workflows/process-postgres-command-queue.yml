@@ -33,6 +33,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install Playwright adapter runtime
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
       - name: Validate PostgreSQL queue worker
         run: node --check scripts/process-postgres-command-queue.mjs
 
