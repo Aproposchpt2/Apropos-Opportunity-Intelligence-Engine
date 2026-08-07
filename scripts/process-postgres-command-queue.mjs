@@ -5,6 +5,7 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const WORKER_ID = process.env.POSTGRES_QUEUE_WORKER_ID || `github-actions:${process.env.GITHUB_RUN_ID || randomUUID()}`;
 const LEASE_SECONDS = Number(process.env.POSTGRES_QUEUE_LEASE_SECONDS || 900);
 const MAX_JOBS = Math.max(1, Math.min(10, Number(process.env.POSTGRES_QUEUE_MAX_JOBS || 1)));
+const SUPPORTED_STATES = new Set(['CA', 'NV', 'AZ']);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
@@ -27,9 +28,24 @@ async function rpc(name, body = {}) {
   return data;
 }
 
+async function dbGet(path) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error(`GET ${path} failed (${res.status}): ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+  return data;
+}
+
 function firstRow(value) {
   if (Array.isArray(value)) return value[0] || null;
   return value && typeof value === 'object' ? value : null;
+}
+
+function asObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
 }
 
 async function heartbeat(queueId, stage) {
@@ -51,11 +67,85 @@ async function finish(queueId, success, result = {}, error = null) {
   });
 }
 
-function installAcquisitionCompatibilityFetch() {
+async function resolvePublisherAdapter(publisherId) {
+  const publishers = await dbGet(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&select=id,publisher_name,state_code,acquisition_method,search_endpoint,procurement_website,configuration`);
+  const publisher = firstRow(publishers);
+  if (!publisher) throw new Error(`Publisher ${publisherId} was not found.`);
+
+  const assignments = await dbGet(`publisher_assignments?publisher_id=eq.${encodeURIComponent(publisherId)}&status=eq.READY&select=*&order=updated_at.desc&limit=1`);
+  const assignment = firstRow(assignments);
+  if (!assignment) throw new Error(`Publisher ${publisherId} has no READY acquisition assignment.`);
+
+  const params = asObject(assignment.search_parameters);
+  const connection = { ...asObject(publisher.configuration), ...asObject(params.connection_config) };
+  const method = String(assignment.acquisition_method || connection.access_method || publisher.acquisition_method || '').toUpperCase();
+  const endpoint = String(assignment.search_endpoint || connection.primary_endpoint || publisher.search_endpoint || publisher.procurement_website || '').trim();
+  const platform = String(connection.procurement_platform || params.procurement_platform || '').trim();
+  const browserRequired = params.browser_automation_required === true || connection.browser_automation_required === true || params.javascript_required === true || params.stateful_session_required === true;
+
+  let adapterKey = 'DIRECT_HTTP';
+  if (/caleprocure/i.test(`${endpoint} ${platform}`)) adapterKey = 'CALEPROCURE_PLAYWRIGHT';
+  else if (browserRequired) adapterKey = 'BROWSER_PUBLIC_SEARCH';
+  else if (method === 'API') adapterKey = 'API';
+
+  return { adapterKey, publisher, assignment, endpoint, platform, browserRequired, method };
+}
+
+async function createBrowserBridge(profile) {
+  if (!['BROWSER_PUBLIC_SEARCH', 'CALEPROCURE_PLAYWRIGHT'].includes(profile.adapterKey)) return null;
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36 APROPOS-APIE/1.0'
+  });
+  const endpointHost = (() => { try { return new URL(profile.endpoint).hostname; } catch { return ''; } })();
+
+  return {
+    async fetch(url, init = {}) {
+      const method = String(init?.method || 'GET').toUpperCase();
+      let parsed;
+      try { parsed = new URL(url); } catch { return null; }
+      if (method !== 'GET' || !/^https?:$/.test(parsed.protocol) || parsed.hostname !== endpointHost || /\.pdf(?:$|\?)/i.test(parsed.href)) return null;
+
+      const page = await context.newPage();
+      try {
+        const response = await page.goto(parsed.href, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+        await page.waitForTimeout(1500);
+        const html = await page.content();
+        const status = response?.status() || 200;
+        return new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+      } finally {
+        await page.close().catch(() => null);
+      }
+    },
+    async close() {
+      await context.close().catch(() => null);
+      await browser.close().catch(() => null);
+    }
+  };
+}
+
+function normalizeRawPayloadState(body, stateCode) {
+  const rows = Array.isArray(body) ? body : [body];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    row.raw_payload = { ...asObject(row.raw_payload), state_code: stateCode, __authoritative_state_code: stateCode };
+  }
+  return Array.isArray(body) ? rows : rows[0];
+}
+
+function installAcquisitionCompatibilityFetch({ stateCode, browserBridge }) {
   const nativeFetch = globalThis.fetch;
+  const acquisitionRunIds = [];
+
   globalThis.fetch = async (input, init = {}) => {
     let url = typeof input === 'string' ? input : input?.url;
     let nextInit = init;
+
+    if (typeof url === 'string' && browserBridge && !url.startsWith(SUPABASE_URL)) {
+      const browserResponse = await browserBridge.fetch(url, nextInit).catch(() => null);
+      if (browserResponse) return browserResponse;
+    }
 
     if (typeof url === 'string' && url.includes('/rest/v1/acquisition_raw_records?')) {
       const parsed = new URL(url);
@@ -63,19 +153,40 @@ function installAcquisitionCompatibilityFetch() {
         parsed.searchParams.set('on_conflict', 'acquisition_run_id,publisher_id,source_record_id,source_fingerprint');
         url = parsed.toString();
       }
+      try {
+        const body = nextInit?.body ? JSON.parse(nextInit.body) : null;
+        if (body) nextInit = { ...nextInit, body: JSON.stringify(normalizeRawPayloadState(body, stateCode)) };
+      } catch {}
     }
 
     if (typeof url === 'string' && url.includes('/rest/v1/rpc/aadp_route_pending_raw_records')) {
       try {
         const body = nextInit?.body ? JSON.parse(nextInit.body) : {};
         if (!Object.prototype.hasOwnProperty.call(body, 'p_acquisition_run_id')) {
-          nextInit = { ...nextInit, body: JSON.stringify({ ...body, p_acquisition_run_id: null }) };
+          if (acquisitionRunIds.length !== 1) {
+            throw new Error(`Qualification routing requires exactly one acquisition run; observed ${acquisitionRunIds.length}.`);
+          }
+          nextInit = { ...nextInit, body: JSON.stringify({ ...body, p_acquisition_run_id: acquisitionRunIds[0] }) };
+        }
+      } catch (error) {
+        if (error instanceof Error && /Qualification routing requires/.test(error.message)) throw error;
+      }
+    }
+
+    const response = await nativeFetch(url || input, nextInit);
+
+    if (typeof url === 'string' && url.includes('/rest/v1/acquisition_runs') && String(nextInit?.method || 'GET').toUpperCase() === 'POST' && response.ok) {
+      try {
+        const payload = await response.clone().json();
+        for (const row of Array.isArray(payload) ? payload : [payload]) {
+          if (row?.id && !acquisitionRunIds.includes(row.id)) acquisitionRunIds.push(row.id);
         }
       } catch {}
     }
 
-    return nativeFetch(url || input, nextInit);
+    return response;
   };
+
   return () => { globalThis.fetch = nativeFetch; };
 }
 
@@ -88,13 +199,23 @@ async function runAcquisitionDiscovery(job) {
   const publisherScope = String(evidence.publisher_scope || payload.publisher_scope || 'ALL').toUpperCase();
   const publisherId = evidence.publisher_id || payload.publisher_id || null;
 
-  if (!queueId || !commandRunId || !/^[A-Z]{2}$/.test(stateCode)) {
-    throw new Error('Queued acquisition discovery job is missing queue_id, command_run_id, or state_code.');
+  if (!queueId || !commandRunId || !SUPPORTED_STATES.has(stateCode)) {
+    throw new Error('Queued acquisition discovery job is missing queue_id/command_run_id or has an unsupported state_code.');
+  }
+  if (publisherScope !== 'SINGLE' || !publisherId) {
+    throw new Error('PostgreSQL acquisition discovery requires an immutable SINGLE publisher scope and publisher_id.');
   }
 
+  const profile = await resolvePublisherAdapter(publisherId);
+  if (String(profile.publisher.state_code || '').toUpperCase() !== stateCode) {
+    throw new Error(`Publisher state ${profile.publisher.state_code || 'UNKNOWN'} conflicts with mission state ${stateCode}.`);
+  }
+
+  await heartbeat(queueId, `ADAPTER_${profile.adapterKey}_SELECTED`);
+  const browserBridge = await createBrowserBridge(profile);
   const localPassword = `queue-${randomUUID()}`;
   process.env.EXECUTIVE_AUTH_HASH = createHash('sha256').update(localPassword).digest('hex');
-  const restoreFetch = installAcquisitionCompatibilityFetch();
+  const restoreFetch = installAcquisitionCompatibilityFetch({ stateCode, browserBridge });
 
   try {
     const { handler } = await import('../netlify/functions/command-acquisition-worker-background.js');
@@ -104,12 +225,12 @@ async function runAcquisitionDiscovery(job) {
       body: JSON.stringify({
         command_run_id: commandRunId,
         state_code: stateCode,
-        publisher_scope: publisherScope,
+        publisher_scope: 'SINGLE',
         publisher_id: publisherId
       })
     };
 
-    await heartbeat(queueId, 'GITHUB_ACQUISITION_DISCOVERY_RUNNING');
+    await heartbeat(queueId, `GITHUB_${profile.adapterKey}_RUNNING`);
     const response = await handler(event);
     const statusCode = Number(response?.statusCode || 500);
     let body = {};
@@ -119,13 +240,23 @@ async function runAcquisitionDiscovery(job) {
     if (statusCode < 200 || statusCode >= 300) {
       throw new Error(`Acquisition discovery worker returned HTTP ${statusCode}: ${JSON.stringify(body)}`);
     }
+    if (Number(body?.publishers_processed || 0) !== 1) {
+      throw new Error(`Single-publisher scope violated: worker processed ${body?.publishers_processed ?? 'unknown'} publishers.`);
+    }
     if (Number(body?.failures || 0) > 0 || body?.routing_result?.error) {
       throw new Error(`Acquisition discovery completed with runtime defects: ${JSON.stringify({ failures: body?.failures || 0, failure_details: body?.failure_details || [], routing_result: body?.routing_result || {} })}`);
     }
 
-    return { status_code: statusCode, ...body };
+    return {
+      status_code: statusCode,
+      adapter_key: profile.adapterKey,
+      publisher_id: publisherId,
+      authoritative_state_code: stateCode,
+      ...body
+    };
   } finally {
     restoreFetch();
+    await browserBridge?.close().catch(() => null);
   }
 }
 
