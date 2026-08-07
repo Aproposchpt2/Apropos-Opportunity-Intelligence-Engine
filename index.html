@@ -187,6 +187,73 @@
           </div>
         </section>
 
+        <section class="panel ecc-inventory-panel" aria-labelledby="caleprocureHeading">
+          <div class="panel-heading ecc-inventory-heading">
+            <div>
+              <p class="section-kicker">CONTRACT ACQUISITION</p>
+              <h2 id="caleprocureHeading">Cal eProcure Acquisition</h2>
+            </div>
+            <small id="eccCaleprocureUpdated" class="ecc-inventory-updated">Waiting for acquisition status</small>
+          </div>
+
+          <div class="ecc-inventory-table-wrap">
+            <table class="ecc-inventory-table">
+              <thead>
+                <tr>
+                  <th scope="col">Cal eProcure</th>
+                  <th scope="col">Current Value</th>
+                  <th scope="col">Operational Detail</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Repository Records</th>
+                  <td id="eccCaleprocureRecordCount" class="ecc-inventory-count">—</td>
+                  <td class="ecc-inventory-source">California Cal eProcure records in the canonical repository</td>
+                  <td><span id="eccCaleprocureRecordStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Package Complete</th>
+                  <td id="eccCaleprocurePackageComplete" class="ecc-inventory-count">—</td>
+                  <td class="ecc-inventory-source">Verified complete solicitation packages persisted to Supabase</td>
+                  <td><span id="eccCaleprocurePackageStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Eligible Acquisition Queue</th>
+                  <td id="eccCaleprocureQueueCount" class="ecc-inventory-count">—</td>
+                  <td class="ecc-inventory-source">Latest open contracts eligible for normal package acquisition</td>
+                  <td><span id="eccCaleprocureQueueStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Quarantined</th>
+                  <td id="eccCaleprocureQuarantined" class="ecc-inventory-count">—</td>
+                  <td class="ecc-inventory-source">Failed records preserved outside the normal acquisition queue</td>
+                  <td><span id="eccCaleprocureQuarantineStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Continuous Acquisition</th>
+                  <td id="eccCaleprocureAutomationValue" class="ecc-inventory-count">5 / batch</td>
+                  <td id="eccCaleprocureAutomationDetail" class="ecc-inventory-source">Serialized continuation chain</td>
+                  <td><span id="eccCaleprocureAutomationStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Last Acquisition Batch</th>
+                  <td id="eccCaleprocureLastBatchCount" class="ecc-inventory-count">—</td>
+                  <td id="eccCaleprocureLastBatchDetail" class="ecc-inventory-source">Waiting for batch evidence</td>
+                  <td><span id="eccCaleprocureLastBatchStatus" class="ecc-inventory-status ecc-loading">Loading</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Source of Truth</th>
+                  <td class="ecc-inventory-count"><a href="https://drive.google.com/file/d/1eClUfBvlg4Lyj57IrUy-bEHWUPZBvQ5f/view?usp=drivesdk" target="_blank" rel="noopener">SOT-001</a></td>
+                  <td class="ecc-inventory-source">APROPOS-CALEPROCURE-SOT-001 · Authoritative System Record</td>
+                  <td><span class="ecc-inventory-status ecc-pass">Official</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="panel ecc-monitor-panel" aria-labelledby="taskForceMonitorHeading">
           <div class="panel-heading ecc-monitor-heading">
             <div>
