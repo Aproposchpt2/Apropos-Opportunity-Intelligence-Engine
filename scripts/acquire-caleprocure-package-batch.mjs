@@ -1,41 +1,213 @@
-// MANUAL_BATCH_TRIGGER_2026_08_06_01
-import { chromium } from 'playwright';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { acquireCandidate } from './caleprocure-batch/acquire.mjs';
+import {
+  ARTIFACT_ROOT,
+  BATCH_ID,
+  TARGET_COMPLETIONS,
+  encode,
+  loadCandidatePool,
+  now,
+  parseIdentifiers,
+  rest,
+} from './caleprocure-batch/runtime.mjs';
 
-const URL=process.env.SUPABASE_URL?.replace(/\/$/,'');
-const KEY=process.env.SUPABASE_SERVICE_ROLE_KEY;
-if(!URL||!KEY) throw new Error('Required Supabase runtime configuration is unavailable.');
-const BUCKET='solicitation-packages';
-const HOME='https://caleprocure.ca.gov/pages/index.aspx';
-const SEARCH='https://caleprocure.ca.gov/psc/psfpd1_2/SUPPLIER/ERP/c/AUC_MANAGE_BIDS.AUC_RESP_INQ_AUC.GBL?EOPP.SCFName=EP_SCP_BIDDINGEVENTS&EOPP.SCLabel=My+Bidding+Events&EOPP.SCName=EP_SCP_SUPPLIER_PORTAL&EOPP.SCNode=ERP&EOPP.SCPTfname=EP_SCP_BIDDINGEVENTS&EOPP.SCPortal=SUPPLIER&EOPP.SCSecondary=true&FolderPath=PORTAL_ROOT_OBJECT.EP_SCP_SUPPLIER_PORTAL.EP_SCP_BIDDINGEVENTS&EOPP.SCPortal=SUPPLIER&EOPP.SCSecondary=true&NoCrumbs=yes&PORTALPARAM_PTCNAV=EP_SCP_AUC_RESP_INQ_AUC&PortalRegistryName=SUPPLIER&pslnkid=EP_SCP_AUC_RESP_INQ_AUC';
-const LIMIT=5,MAX_SESSION_ATTEMPTS=3;
-const ROOT=path.resolve('artifacts','caleprocure-package-batch');
-const headers={apikey:KEY,Authorization:`Bearer ${KEY}`};
-const q=encodeURIComponent,now=()=>new Date().toISOString(),sha=b=>createHash('sha256').update(b).digest('hex');
-const safe=v=>String(v||'file').replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,'_').replace(/^_+|_+$/g,'').slice(0,200)||'file';
-const addendum=n=>/addend|amend|revision|revised|supplement|questions|q[&_ -]*a|notice of change/i.test(String(n||''));
-async function api(table,method='GET',body=null,query=''){const r=await fetch(`${URL}/rest/v1/${table}${query}`,{method,headers:{...headers,'Content-Type':'application/json',Prefer:'return=representation,resolution=merge-duplicates'},body:body?JSON.stringify(body):undefined});const t=await r.text();if(!r.ok)throw new Error(`${table} ${method} ${r.status}: ${t}`);return t?JSON.parse(t):[];}
-function ids(record){const v=String(record.source_record_id||'').trim();const bu=v.match(/[?&](?:BUSINESS_UNIT|business_unit)=([^&#]+)/i)?.[1],auc=v.match(/[?&](?:AUC_ID|auc_id)=([^&#]+)/i)?.[1];if(bu&&auc)return{businessUnit:decodeURIComponent(bu),eventId:decodeURIComponent(auc)};const m=v.match(/(?:^|[^A-Za-z0-9])([A-Za-z0-9]{3,12})\s*[:|/]\s*([A-Za-z0-9-]{4,30})(?:$|[^A-Za-z0-9-])/);return m?{businessUnit:m[1],eventId:m[2]}:null;}
-async function targets(){const rows=await api('state_contract_opportunities','GET',null,'?source_platform=eq.caleprocure&is_latest_version=eq.true&status=eq.open&or=(package_status.is.null,package_status.neq.PACKAGE_COMPLETE)&id=not.is.null&source_record_id=not.is.null&select=id,source_record_id,response_deadline,title,package_status&order=response_deadline.asc.nullslast,source_record_id.asc&limit=200');const out=[];for(const r of rows){const parsed=ids(r);if(!parsed)continue;out.push({...r,...parsed});if(out.length===LIMIT)break;}if(out.length!==LIMIT)throw new Error(`ELIGIBLE_RESOLVABLE_TARGET_COUNT ${out.length}/${LIMIT}`);return out;}
-const relay=t=>`https://caleprocure.ca.gov/PSRelay/AUC_MANAGE_BIDS.AUC_RESP_INQ_AUC.GBL?Page=AUC_RESP_INQ_AUC&Action=U&BUSINESS_UNIT=${q(t.businessUnit)}&AUC_ID=${q(t.eventId)}`;
-function verify(body,name){const head=body.subarray(0,16),text=head.toString('latin1'),lower=body.subarray(0,512).toString('utf8').trim().toLowerCase(),ext=path.extname(name).toLowerCase();if(body.length<64)return{valid:false,reason:'FILE_TOO_SMALL'};if(lower.startsWith('<!doctype html')||lower.startsWith('<html'))return{valid:false,reason:'HTML_RESPONSE_INSTEAD_OF_FILE'};if(ext==='.pdf'){const tail=body.subarray(Math.max(0,body.length-4096)).toString('latin1');return text.startsWith('%PDF-')&&tail.includes('%%EOF')?{valid:true,signature:'PDF'}:{valid:false,reason:'INVALID_PDF_SIGNATURE'};}if(['.xlsx','.xlsm','.docx','.pptx','.zip'].includes(ext))return head[0]===0x50&&head[1]===0x4b?{valid:true,signature:'ZIP_CONTAINER'}:{valid:false,reason:'INVALID_ZIP_CONTAINER_SIGNATURE'};if(['.xls','.doc','.ppt'].includes(ext)){const ole=[0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1];return ole.every((x,i)=>head[i]===x)?{valid:true,signature:'OLE_COMPOUND_DOCUMENT'}:{valid:false,reason:'INVALID_OLE_SIGNATURE'};}return{valid:true,signature:'NON_HTML_BINARY_OR_TEXT'};}
-function mime(name){return({'.pdf':'application/pdf','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.xls':'application/vnd.ms-excel','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.doc':'application/msword','.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation','.ppt':'application/vnd.ms-powerpoint','.zip':'application/zip','.txt':'text/plain'})[path.extname(name).toLowerCase()]||'application/octet-stream';}
-function outcome(page,context,ms=45000){return new Promise(resolve=>{let done=false;const finish=v=>{if(done)return;done=true;clearTimeout(timer);page.off('download',download);context.off('page',popup);resolve(v);},download=d=>finish({kind:'download',download:d}),popup=p=>finish({kind:'popup',popup:p}),timer=setTimeout(()=>finish({kind:'timeout'}),ms);page.on('download',download);context.on('page',popup);});}
-async function openEvent(target,events){const browser=await chromium.launch({headless:true}),context=await browser.newContext({acceptDownloads:true,viewport:{width:1600,height:1200},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',locale:'en-US'}),page=await context.newPage();page.on('console',m=>events.push({type:'console',level:m.type(),text:m.text()}));page.on('pageerror',e=>events.push({type:'pageerror',message:e.message}));const open=async(u,w)=>{await page.goto(u,{waitUntil:'domcontentloaded',timeout:120000});await page.waitForTimeout(w);await page.waitForLoadState('networkidle',{timeout:15000}).catch(()=>null);};await open(HOME,2500);await open(SEARCH,4500);await open(relay(target),6500);await page.locator('#RESP_INQ_DL0_WK_AUC_DOWNLOAD_PB').click({force:true,timeout:30000});await page.waitForSelector('#PV_ATTACH_WRK_SCM_DOWNLOAD\\$0',{state:'visible',timeout:45000});await page.waitForTimeout(2500);const names=await page.locator('[name="ViewAttachmentsFileName"]').evaluateAll(nodes=>nodes.map(n=>(n.textContent||'').replace(/\s+/g,' ').trim()).filter(Boolean));return{browser,context,page,names};}
-async function reset(page){await page.evaluate(()=>{try{clearAttachmentWrapper();}catch{}const link=document.querySelector('#downloadButton');if(link)link.setAttribute('href','#');const modal=document.querySelector('#attachmentWrapperModal');if(modal){modal.classList.remove('show','in');modal.style.display='none';modal.setAttribute('aria-hidden','true');}document.body.classList.remove('modal-open');document.querySelectorAll('.modal-backdrop').forEach(n=>n.remove());}).catch(()=>null);await page.waitForTimeout(500);}
-async function capture({page,context,index,expectedName,filesDir}){await page.locator(`#PV_ATTACH_WRK_SCM_DOWNLOAD\\$${index}`).click({force:true,timeout:20000});await page.waitForFunction(()=>{const h=document.querySelector('#downloadButton')?.getAttribute('href')||'';return h&&h!=='#'&&!h.endsWith('#');},{timeout:35000});const href=await page.locator('#downloadButton').getAttribute('href'),promise=outcome(page,context);await page.evaluate(url=>{const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';a.style.display='none';document.body.appendChild(a);a.click();a.remove();},href);const out=await promise;let body,filename,method,contentType=null;if(out.kind==='download'){filename=safe(out.download.suggestedFilename()||expectedName);const p=path.join(filesDir,filename);await out.download.saveAs(p);body=await readFile(p);method='download-event';}else if(out.kind==='popup'){const popup=out.popup,responses=[];popup.on('response',r=>responses.push(r));await popup.waitForLoadState('domcontentloaded',{timeout:30000}).catch(()=>null);await popup.waitForTimeout(2000);let r=responses.find(x=>/viewredirect|\.(pdf|xlsm?|xlsx|docx?|pptx?|zip)(?:$|\?)/i.test(x.url()));if(!r){await popup.reload({waitUntil:'domcontentloaded',timeout:30000}).catch(()=>null);await popup.waitForTimeout(1500);r=responses.find(x=>/viewredirect|\.(pdf|xlsm?|xlsx|docx?|pptx?|zip)(?:$|\?)/i.test(x.url()));}if(!r)throw new Error(`POPUP_FILE_RESPONSE_NOT_CAPTURED ${popup.url()}`);const h=await r.allHeaders().catch(()=>({}));body=await r.body();contentType=h['content-type']||null;filename=h['content-disposition']?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]||h['content-disposition']?.match(/filename="?([^";]+)"?/i)?.[1]||expectedName;try{filename=decodeURIComponent(filename);}catch{}filename=safe(filename);method='popup-response';await writeFile(path.join(filesDir,filename),body);await popup.close().catch(()=>null);}else throw new Error('NO_BROWSER_DOWNLOAD_OR_POPUP_WITHIN_45_SECONDS');const integrity=verify(body,filename);if(!integrity.valid)throw new Error(`${integrity.reason}: ${filename}`);return{body,record:{index,expected_name:expectedName,status:'DOWNLOADED',method,filename,byte_size:body.length,sha256:sha(body),source_url:href,content_type:contentType,integrity,addendum_like:addendum(expectedName)||addendum(filename)}};}
-async function store(storagePath,body,type){const endpoint=`${URL}/storage/v1/object/${BUCKET}/${storagePath.split('/').map(q).join('/')}`,up=await fetch(endpoint,{method:'POST',headers:{...headers,'Content-Type':type,'x-upsert':'false'},body});if(!up.ok&&up.status!==409)throw new Error(`STORAGE_UPLOAD_${up.status}: ${await up.text()}`);const get=await fetch(endpoint,{headers});if(!get.ok)throw new Error(`STORAGE_CONFIRM_${get.status}: ${await get.text()}`);const stored=Buffer.from(await get.arrayBuffer());if(stored.length!==body.length||sha(stored)!==sha(body))throw new Error(`STORAGE_OBJECT_INTEGRITY_CONFLICT ${storagePath}`);}
-async function checkpoint(run,raw,target,manifest,status='PACKAGE_DISCOVERED'){const stored=manifest.filter(x=>x.retrieval_status==='STORED').length,failed=manifest.filter(x=>x.status==='FAILED_ATTEMPT').length;await api('aadp_document_manifests','POST',{acquisition_run_id:run.id,raw_record_id:raw.id,source_record_id:target.source_record_id,manifest,document_count:manifest.length,package_status:status,storage_document_count:stored,extracted_document_count:0,failed_document_count:failed,updated_at:now()},'?on_conflict=acquisition_run_id,raw_record_id');await api('acquisition_raw_records','PATCH',{raw_payload:{business_unit:target.businessUnit,auc_id:target.eventId,relay_url:relay(target),manifest},document_manifest_count:manifest.length,package_status:status,package_document_count:stored,package_failed_count:failed,detail_retrieved_at:now(),detail_retrieval_status:status==='PACKAGE_COMPLETE'?'COMPLETE':'IN_PROGRESS'},`?id=eq.${raw.id}`);}
-async function acquire(target,run,assignmentId,publisherId){const dir=path.join(ROOT,safe(target.source_record_id)),filesDir=path.join(dir,'official-files');await mkdir(filesDir,{recursive:true});const fingerprint=sha(Buffer.from(`CALEPROCURE|${target.businessUnit}|${target.eventId}`));let raw=(await api('acquisition_raw_records','GET',null,`?acquisition_run_id=eq.${run.id}&source_record_id=eq.${q(target.source_record_id)}&select=*&limit=1`))[0];if(!raw)[raw]=await api('acquisition_raw_records','POST',{acquisition_run_id:run.id,assignment_id:assignmentId,publisher_id:publisherId,source_record_id:target.source_record_id,source_url:relay(target),raw_payload:{business_unit:target.businessUnit,auc_id:target.eventId,manifest:[]},retrieval_timestamp:now(),source_fingerprint:fingerprint,content_fingerprint:fingerprint,source_version:'live-batch-1',processing_status:'RAW',canonical_opportunity_id:target.id,detail_retrieval_status:'IN_PROGRESS',package_status:'PACKAGE_DISCOVERED',match_readiness_status:'BLOCKED_PACKAGE_INCOMPLETE'});const mr=(await api('aadp_document_manifests','GET',null,`?acquisition_run_id=eq.${run.id}&raw_record_id=eq.${raw.id}&select=manifest&limit=1`))[0];let manifest=Array.isArray(mr?.manifest)?mr.manifest:[],names=null,lastError=null;const events=[];for(let attempt=1;attempt<=MAX_SESSION_ATTEMPTS;attempt++){let session;try{session=await openEvent(target,events);names=session.names;for(let index=0;index<names.length;index++){const expectedName=names[index],done=manifest.find(x=>x.index===index&&x.status==='DOWNLOADED'&&x.retrieval_status==='STORED');if(done)continue;try{const {body,record}=await capture({page:session.page,context:session.context,index,expectedName,filesDir}),storagePath=`caleprocure/${target.id}/${target.eventId}/${record.sha256}/${record.filename}`;await store(storagePath,body,mime(record.filename));const permanent={...record,storage_bucket:BUCKET,storage_path:storagePath,retrieval_status:'STORED',extraction_status:'NOT_STARTED'};await api('contract_package_documents','POST',{acquisition_run_id:run.id,raw_record_id:raw.id,publisher_id:publisherId,canonical_opportunity_id:target.id,source_record_id:target.source_record_id,source_url:record.source_url,final_url:record.source_url,storage_bucket:BUCKET,storage_path:storagePath,original_filename:record.filename,document_type:record.addendum_like?'ADDENDUM':'SOLICITATION',mime_type:mime(record.filename),file_extension:path.extname(record.filename),byte_size:body.length,sha256:record.sha256,is_addendum:Boolean(record.addendum_like),is_amendment:Boolean(record.addendum_like),is_current:true,retrieval_status:'STORED',extraction_status:'NOT_STARTED',extracted_char_count:0,retrieval_attempt_count:attempt,last_error:null,retrieved_at:now(),metadata:{manifest_index:index,integrity:record.integrity,acquisition_method:record.method}},'?on_conflict=raw_record_id,source_url');manifest=manifest.filter(x=>x.index!==index);manifest.push(permanent);manifest.sort((a,b)=>a.index-b.index);await checkpoint(run,raw,target,manifest);await writeFile(path.join(dir,'manifest.json'),JSON.stringify(manifest,null,2));await reset(session.page);}catch(e){lastError=e;manifest=manifest.filter(x=>x.index!==index);manifest.push({index,expected_name:expectedName,status:'FAILED_ATTEMPT',session_attempt:attempt,error:e.message});manifest.sort((a,b)=>a.index-b.index);await checkpoint(run,raw,target,manifest);throw e;}}await session.browser.close().catch(()=>null);lastError=null;break;}catch(e){lastError=e;events.push({type:'session-attempt-failed',session_attempt:attempt,error:e.message});await session?.browser?.close().catch(()=>null);}}
-const official=names?.length||0,rows=await api('contract_package_documents','GET',null,`?canonical_opportunity_id=eq.${target.id}&retrieval_status=eq.STORED&select=id,sha256,storage_path,byte_size`),batchRows=rows.filter(r=>manifest.some(x=>x.storage_path===r.storage_path)),hashes=new Set(batchRows.map(r=>r.sha256));let storageCount=0;for(const r of batchRows){const get=await fetch(`${URL}/storage/v1/object/${BUCKET}/${r.storage_path.split('/').map(q).join('/')}`,{headers});if(get.ok)storageCount++;}const downloaded=manifest.filter(x=>x.status==='DOWNLOADED'&&x.retrieval_status==='STORED').length,complete=official>0&&official===downloaded&&official===batchRows.length&&official===storageCount&&official===hashes.size;if(complete){const at=now();await api('acquisition_raw_records','PATCH',{package_status:'PACKAGE_COMPLETE',package_document_count:official,package_failed_count:0,package_completed_at:at,match_readiness_status:'BLOCKED_REQUIREMENTS_INCOMPLETE',detail_retrieval_status:'COMPLETE'},`?id=eq.${raw.id}`);await checkpoint(run,raw,target,manifest,'PACKAGE_COMPLETE');await api('state_contract_opportunities','PATCH',{package_status:'PACKAGE_COMPLETE',package_document_count:official,package_extracted_count:0,package_failed_count:0,requirements_extraction_status:'NOT_STARTED',match_readiness_status:'BLOCKED_REQUIREMENTS_INCOMPLETE',package_manifest:manifest,package_completed_at:at,package_last_checked_at:at,document_urls:manifest.map(x=>({storage_bucket:BUCKET,storage_path:x.storage_path,sha256:x.sha256,filename:x.filename})),raw_source_payload:{live_package_batch:{batch_id:BATCH_ID,acquisition_run_id:run.id,completed_at:at}}},`?id=eq.${target.id}`);}await writeFile(path.join(dir,'events.json'),JSON.stringify(events,null,2));return{source_record_id:target.source_record_id,canonical_id:target.id,official_manifest_count:official,verified_downloaded_files:downloaded,stored_package_document_rows:batchRows.length,storage_objects:storageCount,unique_hashes:hashes.size,complete,reason:complete?null:(lastError?.message||`RECONCILIATION_MISMATCH manifest=${official} downloaded=${downloaded} rows=${batchRows.length} storage=${storageCount} hashes=${hashes.size}`)};}
-await mkdir(ROOT,{recursive:true});
-const BATCH_ID=`caleprocure-batch-${process.env.GITHUB_RUN_ID||Date.now()}-${process.env.GITHUB_RUN_ATTEMPT||1}`;
-const selected=await targets();
-const prior=await api('acquisition_raw_records','GET',null,'?publisher_id=not.is.null&assignment_id=not.is.null&source_record_id=not.is.null&select=publisher_id,assignment_id,source_record_id&order=retrieval_timestamp.desc&limit=100');const cale=prior.find(r=>ids(r));if(!cale)throw new Error('CALEPROCURE_ASSIGNMENT_OR_PUBLISHER_NOT_RESOLVED');const assignmentId=cale.assignment_id,publisherId=cale.publisher_id;
-let command=(await api('command_runs','GET',null,`?idempotency_key=eq.${q(BATCH_ID)}&select=*&limit=1`))[0];if(!command)[command]=await api('command_runs','POST',{idempotency_key:BATCH_ID,status:'running',aadp_state:'RUNNING',current_stage:'PACKAGE_ACQUISITION',mission_type_key:'CONTRACT_PACKAGE_ACQUISITION',mission_name:'Cal eProcure Five Contract Package Batch',state_code:'CA',assigned_agent:'Cal eProcure Package Acquisition Agent',publisher_assignment_id:assignmentId,started_at:now(),last_activity_at:now(),execution_evidence:{batch_id:BATCH_ID,github_run_id:process.env.GITHUB_RUN_ID||null,repository_commit:process.env.GITHUB_SHA||null,selected_source_record_ids:selected.map(x=>x.source_record_id)}});
-let run=(await api('acquisition_runs','GET',null,`?command_run_id=eq.${command.id}&select=*&limit=1`))[0];if(!run)[run]=await api('acquisition_runs','POST',{command_run_id:command.id,assignment_id:assignmentId,status:'RUNNING',records_discovered:LIMIT,records_acquired:0,pages_processed:0,retrieval_failures:0,pagination_complete:false,started_at:now(),reconciliation_status:'PENDING',qualification_status:'PENDING',validation_status:'PENDING',evidence:{batch_id:BATCH_ID,github_run_id:process.env.GITHUB_RUN_ID||null,repository_commit:process.env.GITHUB_SHA||null,targets:selected.map(x=>({canonical_id:x.id,source_record_id:x.source_record_id}))}});
-const results=[];for(const target of selected){try{results.push(await acquire(target,run,assignmentId,publisherId));}catch(e){results.push({source_record_id:target.source_record_id,canonical_id:target.id,complete:false,reason:e.message,official_manifest_count:0,verified_downloaded_files:0,stored_package_document_rows:0,storage_objects:0,unique_hashes:0});}await api('acquisition_runs','PATCH',{records_acquired:results.filter(x=>x.complete).length,retrieval_failures:results.filter(x=>!x.complete).length,pages_processed:results.length,evidence:{batch_id:BATCH_ID,github_run_id:process.env.GITHUB_RUN_ID||null,repository_commit:process.env.GITHUB_SHA||null,results}},`?id=eq.${run.id}`);}
-const completed=results.filter(x=>x.complete),failed=results.filter(x=>!x.complete),terminal=now();await api('acquisition_runs','PATCH',{status:failed.length?(completed.length?'PARTIALLY_COMPLETE':'FAILED'):'COMPLETED',records_acquired:completed.length,retrieval_failures:failed.length,pagination_complete:true,reconciliation_status:failed.length?'MISMATCH':'MATCHED',validation_status:failed.length?'FAILED':'PASSED',completed_at:terminal,evidence:{batch_id:BATCH_ID,github_run_id:process.env.GITHUB_RUN_ID||null,repository_commit:process.env.GITHUB_SHA||null,results}},`?id=eq.${run.id}`);await api('command_runs','PATCH',{status:failed.length?(completed.length?'completed_with_failures':'failed'):'completed',aadp_state:failed.length?(completed.length?'PARTIALLY_COMPLETE':'FAILED'):'COMPLETED',current_stage:'PACKAGE_ACQUISITION_COMPLETED',records_discovered:LIMIT,records_acquired:completed.length,records_accepted:completed.length,records_rejected:failed.length,failure_count:failed.length,reconciliation_status:failed.length?'MISMATCH':'MATCHED',validation_status:failed.length?'FAILED':'PASSED',result_summary:`${completed.length} of ${LIMIT} Cal eProcure contract packages completed.`,completed_at:terminal,last_activity_at:terminal},`?id=eq.${command.id}`);
-const backlog=await api('state_contract_opportunities','GET',null,'?source_platform=eq.caleprocure&is_latest_version=eq.true&status=eq.open&or=(package_status.is.null,package_status.neq.PACKAGE_COMPLETE)&select=id');const evidence={connect:'CONNECTED',contracts_acquired:`${completed.length} / ${LIMIT}`,result:failed.length?(completed.length?'PARTIAL':'FAILED'):'SUCCESS',batch_id:BATCH_ID,command_run_id:command.id,acquisition_run_id:run.id,completed_contracts:completed.map(x=>x.source_record_id),failed_or_incomplete_contracts:failed.map(x=>({source_record_id:x.source_record_id,reason:x.reason})),documents_stored:results.reduce((s,x)=>s+x.stored_package_document_rows,0),storage_objects:results.reduce((s,x)=>s+x.storage_objects,0),unique_hashes:results.reduce((s,x)=>s+x.unique_hashes,0),remaining_open_incomplete_backlog:backlog.length,exact_blocker:failed.length?failed.map(x=>`${x.source_record_id}: ${x.reason}`).join(' | '):'NONE',results};await writeFile('caleprocure-package-batch-result.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence));if(failed.length)process.exitCode=1;
+async function main() {
+  await mkdir(ARTIFACT_ROOT, { recursive: true });
+  const candidates = await loadCandidatePool();
+
+  const previous = await rest(
+    'acquisition_raw_records',
+    'GET',
+    null,
+    '?publisher_id=not.is.null&assignment_id=not.is.null&source_record_id=not.is.null&select=publisher_id,assignment_id,source_record_id&order=retrieval_timestamp.desc&limit=100',
+  );
+  const knownCalEprocureRecord = previous.find((record) => parseIdentifiers(record));
+  if (!knownCalEprocureRecord) throw new Error('CALEPROCURE_ASSIGNMENT_OR_PUBLISHER_NOT_RESOLVED');
+
+  const assignmentId = knownCalEprocureRecord.assignment_id;
+  const publisherId = knownCalEprocureRecord.publisher_id;
+
+  let command = (
+    await rest('command_runs', 'GET', null, `?idempotency_key=eq.${encode(BATCH_ID)}&select=*&limit=1`)
+  )[0];
+  if (!command) {
+    [command] = await rest('command_runs', 'POST', {
+      idempotency_key: BATCH_ID,
+      status: 'running',
+      aadp_state: 'RUNNING',
+      current_stage: 'PACKAGE_ACQUISITION',
+      mission_type_key: 'CONTRACT_PACKAGE_ACQUISITION',
+      mission_name: 'Cal eProcure Five Contract Package Batch',
+      state_code: 'CA',
+      assigned_agent: 'Cal eProcure Package Acquisition Agent',
+      publisher_assignment_id: assignmentId,
+      started_at: now(),
+      last_activity_at: now(),
+      execution_evidence: {
+        batch_id: BATCH_ID,
+        github_run_id: process.env.GITHUB_RUN_ID || null,
+        repository_commit: process.env.GITHUB_SHA || null,
+        candidate_source_record_ids: candidates.map((candidate) => candidate.source_record_id),
+      },
+    });
+  }
+
+  let run = (
+    await rest('acquisition_runs', 'GET', null, `?command_run_id=eq.${command.id}&select=*&limit=1`)
+  )[0];
+  if (!run) {
+    [run] = await rest('acquisition_runs', 'POST', {
+      command_run_id: command.id,
+      assignment_id: assignmentId,
+      status: 'RUNNING',
+      records_discovered: 0,
+      records_acquired: 0,
+      pages_processed: 0,
+      retrieval_failures: 0,
+      pagination_complete: false,
+      started_at: now(),
+      reconciliation_status: 'PENDING',
+      qualification_status: 'PENDING',
+      validation_status: 'PENDING',
+      evidence: {
+        batch_id: BATCH_ID,
+        github_run_id: process.env.GITHUB_RUN_ID || null,
+        repository_commit: process.env.GITHUB_SHA || null,
+      },
+    });
+  }
+
+  const results = [];
+  const completed = [];
+
+  for (const candidate of candidates) {
+    if (completed.length >= TARGET_COMPLETIONS) break;
+
+    let result;
+    try {
+      result = await acquireCandidate(candidate, run, assignmentId, publisherId);
+    } catch (error) {
+      result = {
+        source_record_id: candidate.source_record_id,
+        canonical_id: candidate.id,
+        complete: false,
+        quarantined: false,
+        reason: error.message,
+        official_manifest_count: 0,
+        verified_downloaded_files: 0,
+        stored_package_document_rows: 0,
+        storage_objects: 0,
+        unique_hashes: 0,
+      };
+    }
+
+    results.push(result);
+    if (result.complete) completed.push(result);
+
+    await rest('acquisition_runs', 'PATCH', {
+      records_discovered: results.length,
+      records_acquired: completed.length,
+      retrieval_failures: results.filter((item) => !item.complete).length,
+      pages_processed: results.length,
+      evidence: {
+        batch_id: BATCH_ID,
+        github_run_id: process.env.GITHUB_RUN_ID || null,
+        repository_commit: process.env.GITHUB_SHA || null,
+        results,
+      },
+    }, `?id=eq.${run.id}`);
+  }
+
+  const targetReached = completed.length === TARGET_COMPLETIONS;
+  const failedCandidates = results.filter((item) => !item.complete);
+  const terminal = now();
+
+  await rest('acquisition_runs', 'PATCH', {
+    status: targetReached ? 'COMPLETED' : completed.length ? 'PARTIALLY_COMPLETE' : 'FAILED',
+    records_discovered: results.length,
+    records_acquired: completed.length,
+    retrieval_failures: failedCandidates.length,
+    pagination_complete: true,
+    reconciliation_status: targetReached ? 'MATCHED' : 'MISMATCH',
+    validation_status: targetReached ? 'PASSED' : 'FAILED',
+    completed_at: terminal,
+    evidence: {
+      batch_id: BATCH_ID,
+      github_run_id: process.env.GITHUB_RUN_ID || null,
+      repository_commit: process.env.GITHUB_SHA || null,
+      results,
+    },
+  }, `?id=eq.${run.id}`);
+
+  await rest('command_runs', 'PATCH', {
+    status: targetReached ? 'completed' : completed.length ? 'completed_with_failures' : 'failed',
+    aadp_state: targetReached ? 'COMPLETED' : completed.length ? 'PARTIALLY_COMPLETE' : 'FAILED',
+    current_stage: 'PACKAGE_ACQUISITION_COMPLETED',
+    records_discovered: results.length,
+    records_acquired: completed.length,
+    records_accepted: completed.length,
+    records_rejected: failedCandidates.length,
+    failure_count: failedCandidates.length,
+    reconciliation_status: targetReached ? 'MATCHED' : 'MISMATCH',
+    validation_status: targetReached ? 'PASSED' : 'FAILED',
+    result_summary: `${completed.length} of ${TARGET_COMPLETIONS} Cal eProcure contract packages completed after ${results.length} candidate attempts.`,
+    completed_at: terminal,
+    last_activity_at: terminal,
+  }, `?id=eq.${command.id}`);
+
+  const allIncomplete = await rest(
+    'state_contract_opportunities',
+    'GET',
+    null,
+    '?source_platform=eq.caleprocure&is_latest_version=eq.true&status=eq.open&or=(package_status.is.null,package_status.neq.PACKAGE_COMPLETE)&select=id',
+  );
+  const eligibleRemaining = await rest(
+    'state_contract_opportunities',
+    'GET',
+    null,
+    '?source_platform=eq.caleprocure&is_latest_version=eq.true&status=eq.open&or=(package_status.is.null,package_status.in.(PACKAGE_NOT_STARTED,PACKAGE_DISCOVERED,PACKAGE_DOWNLOADING,PACKAGE_PARTIAL,PACKAGE_EXTRACTED))&select=id',
+  );
+
+  const evidence = {
+    connect: 'CONNECTED',
+    contracts_acquired: `${completed.length} / ${TARGET_COMPLETIONS}`,
+    result: targetReached ? 'SUCCESS' : completed.length ? 'PARTIAL' : 'FAILED',
+    batch_id: BATCH_ID,
+    command_run_id: command.id,
+    acquisition_run_id: run.id,
+    completed_contracts: completed.map((item) => item.source_record_id),
+    quarantined_contracts: failedCandidates
+      .filter((item) => item.quarantined)
+      .map((item) => ({ source_record_id: item.source_record_id, reason: item.reason })),
+    failed_or_incomplete_contracts: failedCandidates.map((item) => ({
+      source_record_id: item.source_record_id,
+      reason: item.reason,
+    })),
+    candidates_attempted: results.length,
+    documents_stored: results.reduce((sum, item) => sum + item.stored_package_document_rows, 0),
+    storage_objects: results.reduce((sum, item) => sum + item.storage_objects, 0),
+    unique_hashes: results.reduce((sum, item) => sum + item.unique_hashes, 0),
+    remaining_open_incomplete_backlog: allIncomplete.length,
+    remaining_eligible_backlog: eligibleRemaining.length,
+    exact_blocker: targetReached
+      ? 'NONE'
+      : failedCandidates.map((item) => `${item.source_record_id}: ${item.reason}`).join(' | '),
+    results,
+  };
+
+  await writeFile('caleprocure-package-batch-result.json', JSON.stringify(evidence, null, 2));
+  await new Promise((resolve) => process.stdout.write(`${JSON.stringify(evidence)}\n`, resolve));
+  process.exit(targetReached ? 0 : 1);
+}
+
+main().catch(async (error) => {
+  const failure = {
+    connect: 'FAILED',
+    contracts_acquired: `0 / ${TARGET_COMPLETIONS}`,
+    result: 'FAILED',
+    batch_id: BATCH_ID,
+    exact_blocker: error.message,
+  };
+  await writeFile('caleprocure-package-batch-result.json', JSON.stringify(failure, null, 2)).catch(() => null);
+  process.stderr.write(`${error.stack || error.message}\n`, () => process.exit(1));
+});
