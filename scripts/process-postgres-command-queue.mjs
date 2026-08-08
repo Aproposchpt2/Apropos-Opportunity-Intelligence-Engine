@@ -191,6 +191,53 @@ async function runAcquisitionDiscovery(job) {
   }
 }
 
+async function runPublisherVerification(job) {
+  const payload = job.payload || {};
+  const evidence = payload.execution_evidence || {};
+  const commandRunId = job.command_run_id;
+  const queueId = job.queue_id;
+  const stateCode = String(payload.state_code || evidence.state_code || '').toUpperCase();
+  const publisherId = evidence.publisher_id || payload.publisher_id || null;
+  if (!queueId || !commandRunId || !SUPPORTED_STATES.has(stateCode) || !publisherId) {
+    throw new Error('Queued publisher verification job is missing queue_id, command_run_id, state_code, or publisher_id.');
+  }
+
+  const profile = await resolvePublisherAdapter(publisherId);
+  if (String(profile.publisher.state_code || '').toUpperCase() !== stateCode) throw new Error(`Publisher state ${profile.publisher.state_code || 'UNKNOWN'} conflicts with mission state ${stateCode}.`);
+  await heartbeat(queueId, 'EAG_001_PROFILE_LOADED');
+
+  const browserBridge = await createBrowserBridge(profile);
+  const localPassword = `verify-queue-${randomUUID()}`;
+  process.env.EXECUTIVE_AUTH_HASH = createHash('sha256').update(localPassword).digest('hex');
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input?.url;
+    if (typeof url === 'string' && browserBridge && !url.startsWith(SUPABASE_URL)) {
+      const browserResponse = await browserBridge.fetch(url, init).catch(() => null);
+      if (browserResponse) return browserResponse;
+    }
+    return nativeFetch(input, init);
+  };
+
+  try {
+    const { handler } = await import('../netlify/functions/command-verify-publisher-connection-background.js');
+    await heartbeat(queueId, 'EAG_001_RESOLVING_CONNECTOR');
+    const response = await handler({
+      httpMethod: 'POST',
+      headers: { 'x-dashboard-password': localPassword },
+      body: JSON.stringify({ command_run_id: commandRunId, state_code: stateCode, publisher_id: publisherId, sample_size: 5 })
+    });
+    const statusCode = Number(response?.statusCode || 500);
+    let body = {};
+    try { body = response?.body ? JSON.parse(response.body) : {}; } catch { body = { raw_body: response?.body || '' }; }
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Publisher verification worker returned HTTP ${statusCode}: ${JSON.stringify(body)}`);
+    return { status_code: statusCode, publisher_id: publisherId, authoritative_state_code: stateCode, adapter_key: profile.adapterKey, ...body };
+  } finally {
+    globalThis.fetch = nativeFetch;
+    await browserBridge?.close().catch(() => null);
+  }
+}
+
 async function runPublisherDiscovery(job) {
   const payload = job.payload || {};
   const evidence = payload.execution_evidence || {};
@@ -253,6 +300,7 @@ async function executeJob(job) {
   switch (missionType) {
     case 'ACQUISITION_DISCOVERY': return runAcquisitionDiscovery(job);
     case 'PUBLISHER_DISCOVERY': return runPublisherDiscovery(job);
+    case 'VERIFY_PUBLISHER_CONNECTION': return runPublisherVerification(job);
     default: throw new Error(`No GitHub PostgreSQL queue adapter is configured for mission type ${missionType || 'UNKNOWN'}.`);
   }
 }
