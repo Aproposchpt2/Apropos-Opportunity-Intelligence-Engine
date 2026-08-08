@@ -90,6 +90,14 @@ export const handler=async event=>{
       const acquisitionDocuments=acquisitionRun?docsByAcquisition.get(acquisitionRun.id)||[]:[];
       const verifiedCandidates=candidateRows.filter(row=>row.official_source_verified).length;
       const classifiedCandidates=candidateRows.filter(row=>row.access_class||row.connector_strategy||row.engineering_complexity).length;
+      const runStage=String(run.current_stage||'').toUpperCase();
+      const workerClaimed=Boolean(
+        commandTasks.some(task=>task.started_at)
+        || commandTaskAttempts.some(attempt=>attempt.started_at)
+        || run.execution_evidence?.worker_claimed === true
+        || acquisitionRun
+        || (['running','processing','retrying'].includes(lower(run.status)) && !runStage.includes('QUEUED'))
+      );
 
       return{
         ...run,
@@ -113,7 +121,7 @@ export const handler=async event=>{
           package_extraction_failure_count:acquisitionDocuments.filter(row=>row.extraction_status==='FAILED').length,
           addenda_count:acquisitionDocuments.filter(row=>row.is_addendum).length,
           amendments_count:acquisitionDocuments.filter(row=>row.is_amendment).length,
-          worker_claimed:Boolean(commandTasks.some(task=>task.started_at)||commandTaskAttempts.some(attempt=>attempt.started_at)||run.execution_evidence?.worker_claimed)
+          worker_claimed:workerClaimed
         }
       };
     });
