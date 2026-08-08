@@ -1,8 +1,9 @@
 import { connector as laCountyEcaps } from './la-county-ecaps.js';
 import { connector as caCalEProcureCscr } from './ca-caleprocure-cscr-v14.js';
 import { connector as agentPublicSourceDiscovery } from './agent-public-source-discovery.js';
+import { connector as openGovPublicBrowser } from './opengov-public-browser.js';
 
-const CONNECTORS = Object.freeze([laCountyEcaps, caCalEProcureCscr, agentPublicSourceDiscovery]);
+const CONNECTORS = Object.freeze([laCountyEcaps, caCalEProcureCscr, openGovPublicBrowser, agentPublicSourceDiscovery]);
 
 const txt = value => String(value ?? '').trim();
 
