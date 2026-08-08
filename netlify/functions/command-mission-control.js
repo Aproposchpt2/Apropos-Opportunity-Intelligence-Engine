@@ -5,7 +5,7 @@ const now = () => new Date().toISOString();
 const txt = value => String(value ?? '').trim();
 const MISSION_ADAPTERS = Object.freeze({
   VERIFY_PUBLISHER_CONNECTION: { agent: 'Publisher Engineering', label: 'Verify Publisher Connection', worker: 'command-verify-publisher-connection-background', kind: 'publisher_verification' },
-  ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'Acquisition Discovery', worker: null, kind: 'acquisition' },
+  ACQUISITION_DISCOVERY: { agent: 'Acquisition Operations', label: 'M2M Acquisition Discovery', worker: null, kind: 'acquisition' },
   CONTRACT_PACKAGE_ACQUISITION: { agent: 'AADP Package Acquisition', label: 'Complete Contract Packages', worker: 'command-contract-package-worker-background', kind: 'package' },
   PUBLISHER_DISCOVERY: { agent: 'Publisher Expansion', label: 'Publisher Discovery', worker: null, kind: 'publisher' },
   BUSINESS_DEVELOPMENT_DISCOVERY: { agent: 'Business Development Discovery', label: 'Business Development Discovery', worker: 'command-business-development-discovery-worker-background', kind: 'research' },
@@ -26,6 +26,18 @@ const isCertifiedPublisher = configuration => {
   return ['CERTIFIED', 'PRODUCTION'].includes(certification);
 };
 
+const isM2MDiscoveryReady = (publisher, configuration) => {
+  const cfg = configuration && typeof configuration === 'object' ? configuration : {};
+  const endpoint = txt(publisher?.search_endpoint || publisher?.procurement_website || publisher?.official_website || cfg.primary_endpoint || cfg.listing_url || cfg.official_procurement_url);
+  const machineToMachine = publisher?.machine_to_machine_supported === true || cfg.machine_to_machine_supported === true;
+  return publisher?.verified === true
+    && txt(publisher?.access_status).toUpperCase() === 'READY'
+    && machineToMachine
+    && Boolean(endpoint)
+    && cfg.authentication_required !== true
+    && cfg.login_required !== true;
+};
+
 async function findActiveCountyDiscovery(stateCode, countyFips, countyName) {
   const encodedState = encodeURIComponent(stateCode);
   const rows = await db(`command_runs?mission_type_key=eq.PUBLISHER_DISCOVERY&state_code=eq.${encodedState}&status=in.(queued,running)&select=id,mission_name,status,current_stage,last_activity_at,execution_evidence&order=started_at.desc`).catch(() => []);
@@ -37,11 +49,16 @@ async function findActiveCountyDiscovery(stateCode, countyFips, countyName) {
   }) || null;
 }
 
-async function loadPublisher({ publisherId, stateCode, countyName }) {
-  const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,county_name,configuration`))?.[0];
+async function loadPublisher({ publisherId, stateCode, countyName, approvalRequired = true, m2mDiscoveryRequired = false }) {
+  const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,state_code,county_name,verified,access_status,machine_to_machine_supported,acquisition_method,search_endpoint,procurement_website,official_website,configuration`))?.[0];
   if (!publisher) throw Object.assign(new Error('Selected publisher profile was not found in the selected county.'), { statusCode: 404 });
   const configuration = publisher.configuration && typeof publisher.configuration === 'object' ? publisher.configuration : {};
-  if (!isApprovedPublisher(configuration)) throw Object.assign(new Error(`${publisher.publisher_name} is not approved for operator access. Complete the APROPOS Publisher Profile and approval review first.`), { statusCode: 403, code: 'PUBLISHER_APPROVAL_REQUIRED' });
+  if (m2mDiscoveryRequired && !isM2MDiscoveryReady(publisher, configuration)) {
+    throw Object.assign(new Error(`${publisher.publisher_name} is not eligible for M2M Acquisition Discovery. The publisher must be VERIFIED, READY, machine-to-machine supported, expose a usable endpoint, and not require login/authentication for discovery.`), { statusCode: 409, code: 'M2M_DISCOVERY_NOT_READY' });
+  }
+  if (approvalRequired && !isApprovedPublisher(configuration)) {
+    throw Object.assign(new Error(`${publisher.publisher_name} is not approved for operator access. Complete the APROPOS Publisher Profile and approval review first.`), { statusCode: 403, code: 'PUBLISHER_APPROVAL_REQUIRED' });
+  }
   return { ...publisher, configuration };
 }
 
@@ -54,12 +71,14 @@ async function createPublisherAcquisitionRun({ publisher, stateCode, countyName,
     county_name: countyName,
     county_fips: countyFips,
     geographic_scope: 'COUNTY',
-    publisher_approval_required: true,
+    publisher_approval_required: false,
+    publisher_certification_required: false,
+    discovery_gate: 'M2M_DISCOVERY_READY',
     execution_model: 'PUBLISHER_ADAPTER_DISPATCH',
     dispatch_model: 'SUPABASE_POSTGRES_QUEUE',
     parent_batch_id: parentBatchId
   };
-  const missionName = `Acquisition Discovery — ${stateCode} — ${countyName} — Publisher ${publisher.publisher_name}`;
+  const missionName = `M2M Acquisition Discovery — ${stateCode} — ${countyName} — Publisher ${publisher.publisher_name}`;
   const runRows = await db('command_runs', { method: 'POST', body: JSON.stringify({
     idempotency_key: `ecc:ACQUISITION_DISCOVERY:${stateCode}:SINGLE:${publisher.id}:${randomUUID()}`,
     status: 'queued',
@@ -179,8 +198,8 @@ export const handler = async event => {
       : requiresPublisher ? 'SINGLE' : null;
     const publisherId = requiresPublisher && body.publisher_id ? txt(body.publisher_id) : null;
     if (requiresCounty && !countyName) return response(400, { error: 'county_name is required for county-centric publisher tasks.', code: 'COUNTY_SCOPE_REQUIRED' });
-    if (adapter.kind === 'acquisition' && !['SINGLE', 'ALL_ELIGIBLE'].includes(requestedPublisherScope)) {
-      return response(400, { error: 'Acquisition Discovery publisher_scope must be SINGLE or ALL_ELIGIBLE.', code: 'PUBLISHER_SCOPE_INVALID' });
+    if (adapter.kind === 'acquisition' && requestedPublisherScope !== 'SINGLE') {
+      return response(400, { error: 'M2M Acquisition Discovery is fixed to SINGLE publisher execution.', code: 'PUBLISHER_SCOPE_INVALID' });
     }
     if (requiresPublisher && requestedPublisherScope === 'SINGLE' && !publisherId) return response(400, { error: 'publisher_id is required for SINGLE publisher execution.', code: 'SINGLE_PUBLISHER_REQUIRED' });
 
@@ -220,57 +239,20 @@ export const handler = async event => {
     }
 
     if (adapter.kind === 'acquisition') {
-      if (requestedPublisherScope === 'SINGLE') {
-        const publisher = await loadPublisher({ publisherId, stateCode, countyName });
-        if (!isCertifiedPublisher(publisher.configuration)) return response(409, {
-          error: `${publisher.publisher_name} has not passed EAG-001. Run Verify Publisher Connection first.`,
-          code: 'PUBLISHER_CERTIFICATION_REQUIRED',
-          certification_status: txt(publisher.configuration.certification_status || 'DEVELOPMENT').toUpperCase()
-        });
-        const created = await createPublisherAcquisitionRun({ publisher, stateCode, countyName, countyFips, adapter });
-        return response(202, {
-          mission: created.mission,
-          run: created.run,
-          execution: {
-            runtime: 'SUPABASE_POSTGRES',
-            worker: 'GITHUB_ACTIONS',
-            dispatch_status: 'QUEUED',
-            assigned_agent: adapter.agent,
-            publisher_scope: 'SINGLE',
-            publisher_id: publisher.id
-          }
-        });
-      }
-
-      const publishers = await db(`publisher_registry?state_code=eq.${stateCode}&county_name=eq.${encodeURIComponent(countyName)}&verified=eq.true&select=id,publisher_name,county_name,configuration&order=publisher_name.asc`);
-      const eligible = (publishers || []).filter(publisher => {
-        const configuration = publisher.configuration && typeof publisher.configuration === 'object' ? publisher.configuration : {};
-        return isApprovedPublisher(configuration) && isCertifiedPublisher(configuration);
-      }).map(publisher => ({ ...publisher, configuration: publisher.configuration || {} }));
-      if (!eligible.length) return response(409, {
-        error: `No approved, EAG-001-certified publishers are currently eligible for Acquisition Discovery in ${countyName}.`,
-        code: 'NO_ELIGIBLE_PUBLISHERS'
-      });
-
-      const batchId = randomUUID();
-      const created = [];
-      for (const publisher of eligible) {
-        created.push(await createPublisherAcquisitionRun({ publisher, stateCode, countyName, countyFips, adapter, parentBatchId: batchId }));
-      }
+      const publisher = await loadPublisher({ publisherId, stateCode, countyName, approvalRequired: false, m2mDiscoveryRequired: true });
+      const created = await createPublisherAcquisitionRun({ publisher, stateCode, countyName, countyFips, adapter });
       return response(202, {
-        batch_id: batchId,
-        publisher_scope: 'ALL_ELIGIBLE',
-        eligible_publishers: eligible.length,
-        queued_publishers: created.length,
-        run: created[0]?.run || null,
-        runs: created.map(item => item.run),
+        mission: created.mission,
+        run: created.run,
         execution: {
           runtime: 'SUPABASE_POSTGRES',
           worker: 'GITHUB_ACTIONS',
           dispatch_status: 'QUEUED',
           assigned_agent: adapter.agent,
-          publisher_scope: 'ALL_ELIGIBLE',
-          queue_model: 'ONE_IMMUTABLE_SINGLE_PUBLISHER_RUN_PER_ELIGIBLE_PUBLISHER'
+          publisher_scope: 'SINGLE',
+          publisher_id: publisher.id,
+          discovery_gate: 'M2M_DISCOVERY_READY',
+          certification_required: false
         }
       });
     }
