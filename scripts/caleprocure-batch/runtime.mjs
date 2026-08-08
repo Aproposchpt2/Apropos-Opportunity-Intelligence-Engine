@@ -14,6 +14,7 @@ const requestedTarget = Number(process.env.TARGET_COMPLETIONS || 5);
 export const TARGET_COMPLETIONS = Number.isFinite(requestedTarget)
   ? Math.max(1, Math.min(Math.trunc(requestedTarget), 5))
   : 5;
+export const TARGET_SOURCE_RECORD_ID = String(process.env.TARGET_SOURCE_RECORD_ID || '').trim() || null;
 export const MAX_SESSION_ATTEMPTS = 3;
 export const CANDIDATE_POOL_LIMIT = 30;
 export const ARTIFACT_ROOT = path.resolve('artifacts', 'caleprocure-package-batch');
@@ -64,12 +65,16 @@ export function parseIdentifiers(record) {
 }
 
 export async function loadCandidatePool() {
+  const targetFilter = TARGET_SOURCE_RECORD_ID
+    ? `&source_record_id=eq.${encode(TARGET_SOURCE_RECORD_ID)}`
+    : '';
   const query = '?source_platform=eq.caleprocure' +
     '&is_latest_version=eq.true' +
     '&status=eq.open' +
     '&or=(package_status.is.null,package_status.in.(PACKAGE_NOT_STARTED,PACKAGE_DISCOVERED,PACKAGE_DOWNLOADING,PACKAGE_PARTIAL,PACKAGE_EXTRACTED))' +
     '&id=not.is.null' +
     '&source_record_id=not.is.null' +
+    targetFilter +
     '&select=id,source_record_id,response_deadline,title,package_status' +
     `&order=response_deadline.asc.nullslast,source_record_id.asc&limit=${CANDIDATE_POOL_LIMIT}`;
   const rows = await rest('state_contract_opportunities', 'GET', null, query);
@@ -77,6 +82,9 @@ export async function loadCandidatePool() {
   for (const row of rows) {
     const identifiers = parseIdentifiers(row);
     if (identifiers) candidates.push({ ...row, ...identifiers });
+  }
+  if (TARGET_SOURCE_RECORD_ID && candidates.length !== 1) {
+    throw new Error(`TARGET_SOURCE_RECORD_NOT_ELIGIBLE ${TARGET_SOURCE_RECORD_ID}`);
   }
   if (candidates.length < TARGET_COMPLETIONS) {
     throw new Error(`ELIGIBLE_RESOLVABLE_TARGET_COUNT ${candidates.length}/${TARGET_COMPLETIONS}`);
