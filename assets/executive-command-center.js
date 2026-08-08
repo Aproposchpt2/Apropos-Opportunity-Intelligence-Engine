@@ -97,5 +97,5 @@ function eccRender(){
 
 window.addEventListener('apie:authenticated',async()=>{
   window.eccClearTaskForceMonitor();clearInterval(ECC.timer);
-  await eccLoad();ECC.timer=setInterval(eccLoad,15000);
+  await eccLoad();ECC.timer=setInterval(eccLoad,5000);
 });
