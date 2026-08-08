@@ -27,7 +27,9 @@ export const handler = async event => {
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
     if (!countyName) return response(400, { error: 'county_name is required.' });
 
-    const rows = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}&verified=eq.true&access_status=eq.READY&select=id,publisher_name,state_code,county_name,county_fips,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,access_class,machine_to_machine_supported,connector_strategy,engineering_complexity,reuse_score,connector_roi_score,last_verified_at,configuration&order=publisher_name.asc`);
+    const baseFilter = `state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}`;
+    const discoveryFilter = acquisitionDiscovery ? '&machine_to_machine_supported=eq.true' : '&verified=eq.true&access_status=eq.READY';
+    const rows = await db(`publisher_registry?${baseFilter}${discoveryFilter}&select=id,publisher_name,state_code,county_name,county_fips,organization_type,official_website,procurement_website,acquisition_method,search_endpoint,verified,access_status,access_class,machine_to_machine_supported,connector_strategy,engineering_complexity,reuse_score,connector_roi_score,last_verified_at,configuration&order=publisher_name.asc`);
 
     const publishers = (rows || [])
       .filter(p => String(p.publisher_name || '').trim())
@@ -50,14 +52,11 @@ export const handler = async event => {
           && configuration.stateful_session_required !== true
           && configuration.javascript_required !== true
           && configuration.browser_automation_required !== true;
-        const m2mDiscoveryReady = machineToMachine
-          && Boolean(endpoint)
-          && configuration.authentication_required !== true
-          && configuration.login_required !== true;
-        const executionMode = certified
-          ? 'CERTIFIED_CONNECTOR'
-          : m2mDiscoveryReady
-            ? 'M2M_ACQUISITION_DISCOVERY'
+
+        const executionMode = acquisitionDiscovery
+          ? 'M2M_ACQUISITION_DISCOVERY'
+          : certified
+            ? 'CERTIFIED_CONNECTOR'
             : minimumAccessPrepared
               ? 'EAG_001_REQUIRED'
               : 'VERIFICATION_REQUIRED';
@@ -80,7 +79,7 @@ export const handler = async event => {
           reuse_score: p.reuse_score == null ? null : Number(p.reuse_score),
           connector_roi_score: p.connector_roi_score == null ? null : Number(p.connector_roi_score),
           connector_key: connectorKey,
-          connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || (m2mDiscoveryReady ? 'M2M PROFILE' : 'CONNECTOR PROFILE REQUIRED'),
+          connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || (machineToMachine ? 'M2M PROFILE' : 'CONNECTOR PROFILE REQUIRED'),
           connector_version: configuration.connector_version || null,
           certification_status: certificationStatus,
           approval_status: String(configuration.approval_status || 'PENDING').toUpperCase(),
@@ -92,33 +91,30 @@ export const handler = async event => {
           publisher_profile_approved: configuration.publisher_profile_approved === true,
           approved_for_operator_menu: configuration.approved_for_operator_menu === true,
           minimum_access_prepared: minimumAccessPrepared,
-          m2m_discovery_ready: m2mDiscoveryReady,
+          m2m_discovery_ready: machineToMachine,
           acquisition_instruction_configured: Boolean(commandInstruction),
           execution_mode: executionMode,
-          selectable: acquisitionDiscovery ? m2mDiscoveryReady : (includeTesting || certified),
-          eligible_for_selection: acquisitionDiscovery ? m2mDiscoveryReady : true,
+          selectable: acquisitionDiscovery ? machineToMachine : (includeTesting || certified),
+          eligible_for_selection: acquisitionDiscovery ? machineToMachine : true,
           eligible_for_acquisition: approved && certified,
-          readiness_reason: certified
-            ? null
-            : m2mDiscoveryReady
-              ? 'Machine-to-machine source is ready for Acquisition Discovery testing.'
+          readiness_reason: acquisitionDiscovery
+            ? 'M2M publisher is available for operator-led Acquisition Discovery. Discovery will determine and validate the usable acquisition method.'
+            : certified
+              ? null
               : minimumAccessPrepared
-                ? 'READY publisher requires EAG-001 certification before acquisition.'
-                : 'READY publisher requires connector verification before acquisition.'
+                ? 'READY publisher requires EAG-001 certification before production acquisition.'
+                : 'READY publisher requires connector verification before production acquisition.'
         };
       })
-      .filter(p => !acquisitionDiscovery || p.m2m_discovery_ready)
-      .sort((a, b) => {
-        if (a.machine_to_machine_supported !== b.machine_to_machine_supported) return a.machine_to_machine_supported ? -1 : 1;
-        return a.publisher_name.localeCompare(b.publisher_name);
-      });
+      .filter(p => !acquisitionDiscovery || p.machine_to_machine_supported)
+      .sort((a, b) => a.publisher_name.localeCompare(b.publisher_name));
 
     return response(200, {
       state_code: stateCode,
       county_name: countyName,
       execution_scope: 'SINGLE_COUNTY_SINGLE_PUBLISHER',
-      selection_policy: acquisitionDiscovery ? 'VERIFIED_READY_M2M_PUBLISHERS' : 'ALL_VERIFIED_READY_PUBLISHERS',
-      acquisition_policy: acquisitionDiscovery ? 'M2M_DISCOVERY_ALLOWED_CERTIFICATION_REQUIRED_FOR_PRODUCTION' : 'CERTIFICATION_REQUIRED_AT_EXECUTION',
+      selection_policy: acquisitionDiscovery ? 'ALL_M2M_PUBLISHERS_IN_SELECTED_COUNTY' : 'ALL_VERIFIED_READY_PUBLISHERS',
+      acquisition_policy: acquisitionDiscovery ? 'NO_PRECERTIFICATION_GATE_DISCOVERY_ONLY' : 'CERTIFICATION_REQUIRED_AT_EXECUTION',
       include_testing: includeTesting,
       publisher_count: publishers.length,
       publishers
