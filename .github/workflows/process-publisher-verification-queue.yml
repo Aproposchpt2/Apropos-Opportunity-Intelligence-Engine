@@ -1,0 +1,42 @@
+name: Process Publisher Verification Queue
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/process-publisher-verification-queue.mjs
+      - .github/workflows/process-publisher-verification-queue.yml
+      - netlify/functions/command-verify-publisher-connection-background.js
+      - netlify/functions/command-mission-control.js
+      - netlify/functions/_shared/acquisition-connectors/**
+  schedule:
+    - cron: '*/5 * * * *'
+
+concurrency:
+  group: apie-publisher-verification-queue
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PUBLISHER_VERIFICATION_LEASE_SECONDS: '900'
+      PUBLISHER_VERIFICATION_WORKER_ID: github-actions:eag001:${{ github.run_id }}:${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate EAG-001 queue worker
+        run: node --check scripts/process-publisher-verification-queue.mjs
+
+      - name: Claim and process next publisher verification
+        run: node scripts/process-publisher-verification-queue.mjs
