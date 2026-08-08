@@ -11,7 +11,17 @@ on:
       target_source_record_id:
         description: Optional exact Cal eProcure source record for qualification
         required: false
-        default: '2740:26-086'
+        default: ''
+        type: string
+      sequence_run:
+        description: Qualification sequence run number
+        required: false
+        default: '1'
+        type: string
+      max_runs:
+        description: Maximum qualification runs in this sequence
+        required: false
+        default: '3'
         type: string
 
   push:
@@ -37,7 +47,9 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TARGET_COMPLETIONS: '1'
-      TARGET_SOURCE_RECORD_ID: ${{ github.event.inputs.target_source_record_id || '2740:26-086' }}
+      TARGET_SOURCE_RECORD_ID: ${{ github.event.inputs.target_source_record_id || '' }}
+      SEQUENCE_RUN: ${{ github.event.inputs.sequence_run || '1' }}
+      MAX_RUNS: ${{ github.event.inputs.max_runs || '3' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +62,7 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Acquire and persist targeted Cal eProcure package
+      - name: Acquire and persist one Cal eProcure package
         run: node scripts/acquire-caleprocure-package-batch.mjs
 
       - name: Upload acquisition evidence
@@ -64,5 +76,39 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-# Qualification phase: one targeted contract per run. Automatic continuation remains disabled
-# while package weight, persistence, reconciliation, and timeout behavior are measured.
+      - name: Schedule next qualification run after five minutes
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="${SEQUENCE_RUN}"
+          maximum="${MAX_RUNS}"
+
+          if [ "$current" -ge "$maximum" ]; then
+            echo "Qualification sequence complete at run ${current}/${maximum}."
+            exit 0
+          fi
+
+          next=$((current + 1))
+          echo "Run ${current}/${maximum} complete. Waiting five minutes before scheduling run ${next}/${maximum}."
+          sleep 300
+
+          payload="$(printf '{\"ref\":\"main\",\"inputs\":{\"target_completions\":\"1\",\"target_source_record_id\":\"\",\"sequence_run\":\"%s\",\"max_runs\":\"%s\"}}' "$next" "$maximum")"
+          status="$(curl -sS -o /tmp/qualification-dispatch-response -w '%{http_code}' \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/acquire-caleprocure-package-batch.yml/dispatches" \
+            -d "$payload")"
+
+          if [ "$status" != "204" ]; then
+            cat /tmp/qualification-dispatch-response || true
+            echo "Qualification continuation dispatch failed with HTTP ${status}."
+            exit 1
+          fi
+
+          echo "Scheduled qualification run ${next}/${maximum}."
+
+# Controlled qualification sequence: one contract per run, five-minute delay between runs,
+# maximum three runs. Each run selects the next eligible incomplete Cal eProcure contract.
