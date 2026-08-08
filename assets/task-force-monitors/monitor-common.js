@@ -114,16 +114,23 @@
   }
 
   function activeStageIndex(run,monitor){
-    const index=(monitor.stages||[]).findIndex(stage=>matchesCurrentStage(run,stage.currentStages));
-    if(index>=0)return index;
-    const evidenced=(monitor.stages||[]).map((stage,i)=>evidenceForStage(run,stage)?i:-1).filter(i=>i>=0);
-    return evidenced.length?Math.min(monitor.stages.length-1,Math.max(...evidenced)+1):0;
+    const stages=monitor.stages||[];
+    const currentIndex=stages.findIndex(stage=>matchesCurrentStage(run,stage.currentStages));
+    const evidenced=stages.map((stage,i)=>evidenceForStage(run,stage)?i:-1).filter(i=>i>=0);
+    const evidenceIndex=evidenced.length?Math.min(stages.length-1,Math.max(...evidenced)+1):-1;
+    // Current-stage fields can lag one checkpoint behind the evidence written by the worker.
+    // Never leave the visual monitor parked on an earlier stage after a later stage has
+    // current-run completion evidence. Advance the active meter to the next stage instead.
+    if(currentIndex>=0&&evidenceIndex>=0)return Math.max(currentIndex,evidenceIndex);
+    if(currentIndex>=0)return currentIndex;
+    if(evidenceIndex>=0)return evidenceIndex;
+    return 0;
   }
 
   function stageStatus(run,monitor,stage,index,runState){
     const evidenced=evidenceForStage(run,stage);
     const active=activeStageIndex(run,monitor);
-    const isActive=index===active||matchesCurrentStage(run,stage.currentStages);
+    const isActive=index===active;
     if(runState.key==='STOPPED'){if(isActive)return'STOPPED';return evidenced?'COMPLETED':'NOT REPORTED'}
     if(runState.key==='FAILED'||runState.key==='BLOCKED'){if(isActive)return runState.key;return evidenced?'COMPLETED':'NOT REPORTED'}
     if(runState.key==='COMPLETED'||runState.key==='COMPLETED_WITH_WARNINGS'){
