@@ -10,6 +10,9 @@ on:
       - .github/workflows/process-postgres-command-queue.yml
       - netlify/functions/command-acquisition-worker-background.js
       - netlify/functions/command-publisher-expansion-worker-background.js
+      - netlify/functions/command-verify-publisher-connection-background.js
+      - netlify/functions/command-verify-publisher-connection-queue.js
+      - netlify/functions/_shared/acquisition-connectors/**
       - netlify/functions/command-mission-control.js
       - netlify/functions/command-mission-control-team.js
       - netlify/functions/_shared/agent-team.js
