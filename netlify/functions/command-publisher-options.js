@@ -30,13 +30,15 @@ export const handler = async event => {
 
     const publishers = (rows || [])
       .filter(p => String(p.publisher_name || '').trim())
-      .filter(p => isApprovedProfile(parseObject(p.configuration)))
       .map(p => {
         const configuration = parseObject(p.configuration);
         const endpoint = p.search_endpoint || p.procurement_website || p.official_website || null;
         const connectorKey = String(configuration.connector_key || '').trim() || null;
         const acquisitionProfile = parseObject(configuration.acquisition_discovery_profile || configuration.acquisition_discovery);
         const commandInstruction = String(acquisitionProfile.command_instruction || configuration.acquisition_command_instruction || '').trim() || null;
+        const certificationStatus = String(configuration.certification_status || 'DEVELOPMENT').toUpperCase();
+        const approved = isApprovedProfile(configuration);
+        const certified = ['CERTIFIED', 'PRODUCTION'].includes(certificationStatus);
         const minimumAccessPrepared = acquisitionProfile.enabled === true
           && String(acquisitionProfile.access_tier || '').toUpperCase() === 'MINIMUM_ACCESS'
           && Boolean(commandInstruction)
@@ -46,14 +48,6 @@ export const handler = async event => {
           && configuration.stateful_session_required !== true
           && configuration.javascript_required !== true
           && configuration.browser_automation_required !== true;
-        const certificationStatus = String(configuration.certification_status || 'DEVELOPMENT').toUpperCase();
-        const profileReady = p.verified === true
-          && String(p.access_status || '').toUpperCase() === 'READY'
-          && Boolean(endpoint)
-          && Boolean(connectorKey)
-          && isApprovedProfile(configuration);
-        const certified = ['CERTIFIED', 'PRODUCTION'].includes(certificationStatus);
-        const selectable = includeTesting ? profileReady : profileReady && certified;
 
         return {
           publisher_id: p.id,
@@ -76,7 +70,7 @@ export const handler = async event => {
           connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || 'CONNECTOR PROFILE REQUIRED',
           connector_version: configuration.connector_version || null,
           certification_status: certificationStatus,
-          approval_status: String(configuration.approval_status || 'APPROVED').toUpperCase(),
+          approval_status: String(configuration.approval_status || 'PENDING').toUpperCase(),
           approved_at: configuration.approved_at || null,
           approval_basis: configuration.approval_basis || null,
           source_verified: p.verified === true,
@@ -87,23 +81,23 @@ export const handler = async event => {
           minimum_access_prepared: minimumAccessPrepared,
           acquisition_instruction_configured: Boolean(commandInstruction),
           execution_mode: certified ? 'CERTIFIED_CONNECTOR' : minimumAccessPrepared ? 'EAG_001_REQUIRED' : 'VERIFICATION_REQUIRED',
-          last_verified_at: configuration.last_verification_at || p.last_verified_at,
-          selectable,
-          readiness_reason: !profileReady
-            ? 'The approved Publisher Profile, endpoint, or connector is not READY.'
-            : !certified && minimumAccessPrepared
-              ? 'Approved minimum-access profile is prepared; run EAG-001 before acquisition.'
-              : !certified && !includeTesting
-                ? 'Approved Publisher Profile requires connection certification before acquisition.'
-                : null
+          selectable: includeTesting || certified,
+          eligible_for_selection: true,
+          eligible_for_acquisition: approved && certified,
+          readiness_reason: certified
+            ? null
+            : minimumAccessPrepared
+              ? 'READY publisher requires EAG-001 certification before acquisition.'
+              : 'READY publisher requires connector verification before acquisition.'
         };
       });
 
     return response(200, {
       state_code: stateCode,
       county_name: countyName,
-      execution_scope: 'SINGLE_COUNTY_SINGLE_APPROVED_PUBLISHER',
-      approval_policy: 'APROPOS_APPROVED_PROFILE_REQUIRED',
+      execution_scope: 'SINGLE_COUNTY_SINGLE_PUBLISHER',
+      selection_policy: 'ALL_VERIFIED_READY_PUBLISHERS',
+      acquisition_policy: 'CERTIFICATION_REQUIRED_AT_EXECUTION',
       include_testing: includeTesting,
       publisher_count: publishers.length,
       publishers
