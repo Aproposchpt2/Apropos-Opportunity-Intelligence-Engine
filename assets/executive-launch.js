@@ -1,6 +1,6 @@
 const TASKS={
   PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',county:true,operation:'command-mission-control'},
-  VERIFY_PUBLISHER_CONNECTION:{agent:'Publisher Engineering',state:'required',county:true,publisher:true,operation:'command-mission-control'},
+  VERIFY_PUBLISHER_CONNECTION:{agent:'Publisher Engineering',state:'required',county:true,publisher:true,operation:'command-verify-publisher-connection-queue'},
   ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',county:true,publisher:true,operation:'command-mission-control'},
   CONTRACT_PACKAGE_ACQUISITION:{agent:'AADP Package Acquisition',state:'required',county:true,publisher:true,operation:'command-mission-control'},
   STATE_MISSION:{agent:'State Operations',state:'required',field:{id:'state_operation',label:'Operation',type:'select',options:[['EVALUATE_READINESS','Evaluate operational state'],['RECONCILE_CAPABILITIES','Reconcile capabilities'],['REFRESH_STATE_INTELLIGENCE','Refresh state intelligence']]},operation:'command-mission-control'},
