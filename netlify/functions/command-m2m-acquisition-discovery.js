@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { response, parseBody, requireDashboardAuth, db } from './_shared/native-runtime.js';
+import { response, parseBody, requireDashboardAuth, db, header } from './_shared/native-runtime.js';
 
 const now = () => new Date().toISOString();
 const txt = value => String(value ?? '').trim();
+
+async function patchRun(id, values) {
+  await db(`command_runs?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ...values, last_activity_at: now() })
+  });
+}
 
 export const handler = async event => {
   if (event?.httpMethod === 'OPTIONS') return response(200, { ok: true });
@@ -21,7 +28,6 @@ export const handler = async event => {
     if (!publisherId) return response(400, { error: 'publisher_id is required.' });
 
     const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${encodeURIComponent(stateCode)}&county_name=eq.${encodeURIComponent(countyName)}&select=id,publisher_name,state_code,county_name,county_fips,machine_to_machine_supported,acquisition_method,search_endpoint,procurement_website,official_website,configuration`))?.[0];
-
     if (!publisher) return response(404, { error: 'Selected M2M publisher was not found in the selected county.' });
 
     const configuration = publisher.configuration && typeof publisher.configuration === 'object' ? publisher.configuration : {};
@@ -32,7 +38,7 @@ export const handler = async event => {
     const missionName = `M2M Acquisition Discovery — ${stateCode} — ${countyName} — Publisher ${publisher.publisher_name}`;
     const missionConfig = {
       source: 'EXECUTIVE_COMMAND_CENTER',
-      runtime: 'SUPABASE_POSTGRES',
+      runtime: 'NETLIFY_BACKGROUND_WORKER',
       operator_authorized: true,
       publisher_scope: 'SINGLE',
       publisher_id: publisher.id,
@@ -48,8 +54,8 @@ export const handler = async event => {
       ready_status_required: false,
       endpoint_prevalidation_required: false,
       authentication_prevalidation_required: false,
-      execution_model: 'PUBLISHER_ADAPTER_DISPATCH',
-      dispatch_model: 'SUPABASE_POSTGRES_QUEUE',
+      execution_model: 'SINGLE_PUBLISHER_ACQUISITION_WORKER',
+      dispatch_model: 'NETLIFY_BACKGROUND_FUNCTION',
       acquisition_method_hint: publisher.acquisition_method || null,
       search_endpoint_hint: publisher.search_endpoint || publisher.procurement_website || publisher.official_website || null,
       assigned_agent_source: 'SYSTEM_STATIC_CONFIGURATION'
@@ -60,7 +66,7 @@ export const handler = async event => {
       body: JSON.stringify({
         idempotency_key: `ecc:ACQUISITION_DISCOVERY:${stateCode}:SINGLE:${publisher.id}:${randomUUID()}`,
         status: 'queued',
-        current_stage: 'POSTGRES_EXECUTION_REQUESTED',
+        current_stage: 'NETLIFY_WORKER_DISPATCH_QUEUED',
         aadp_state: 'QUEUED',
         mission_type_key: 'ACQUISITION_DISCOVERY',
         mission_name: missionName,
@@ -92,13 +98,61 @@ export const handler = async event => {
       })
     });
 
+    const host = header(event, 'host');
+    const authorization = header(event, 'authorization');
+    if (!host) throw new Error('Netlify host context unavailable for M2M worker dispatch.');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let workerResponse;
+    try {
+      workerResponse = await fetch(`https://${host}/.netlify/functions/command-single-publisher-acquisition-background`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authorization ? { Authorization: authorization } : {})
+        },
+        body: JSON.stringify({
+          command_run_id: run.id,
+          state_code: stateCode,
+          county_name: countyName,
+          county_fips: countyFips || publisher.county_fips || null,
+          publisher_scope: 'SINGLE',
+          publisher_id: publisher.id
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!workerResponse.ok && workerResponse.status !== 202) {
+      const detail = await workerResponse.text().catch(() => '');
+      await patchRun(run.id, {
+        status: 'failed',
+        aadp_state: 'FAILED',
+        current_stage: 'WORKER_DISPATCH_FAILED',
+        progress_value: 100,
+        failure_count: 1,
+        action_required: true,
+        completed_at: now(),
+        result_summary: detail || `M2M worker dispatch failed (${workerResponse.status}).`
+      });
+      return response(502, { error: 'M2M Acquisition Discovery worker dispatch failed.', detail, run });
+    }
+
+    await patchRun(run.id, {
+      current_stage: 'WORKER_DISPATCH_ACCEPTED',
+      result_summary: `${publisher.publisher_name}: acquisition worker accepted the discovery run.`
+    });
+
     return response(202, {
       mission: missionRows?.[0] || null,
-      run,
+      run: { ...run, current_stage: 'WORKER_DISPATCH_ACCEPTED' },
       execution: {
-        runtime: 'SUPABASE_POSTGRES',
-        worker: 'GITHUB_ACTIONS',
-        dispatch_status: 'QUEUED',
+        runtime: 'NETLIFY_BACKGROUND_WORKER',
+        worker: 'command-single-publisher-acquisition-background',
+        dispatch_status: workerResponse.status,
         assigned_agent: 'Acquisition Operations',
         publisher_scope: 'SINGLE',
         publisher_id: publisher.id,
