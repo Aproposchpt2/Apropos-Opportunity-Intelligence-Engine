@@ -291,7 +291,7 @@ authView('gateResetForm').addEventListener('submit',async event=>{
     clearExecutiveSession();
     returnToLogin(data.message||'Password updated. Sign in with the new password.');
   }catch(error){
-    setAuthMode('reset',{error:error.message})}
+    setAuthMode('reset',{error:error.message});
   }
 });
 
