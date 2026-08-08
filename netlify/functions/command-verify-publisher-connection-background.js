@@ -13,7 +13,7 @@ export const handler = async event => {
   const body = parseBody(event), commandRunId = txt(body.command_run_id), stateCode = txt(body.state_code).toUpperCase(), publisherId = txt(body.publisher_id);
   if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode) || !publisherId) return response(400, { error: 'command_run_id, state_code, and publisher_id are required.' });
 
-  const postgresWorkerId = txt(event?.headers?.['x-postgres-worker-id'] || event?.headers?.['X-Postgres-Worker-Id']);
+  const postgresWorkerId = txt(event?.headers?.['x-postgres-worker-id'] || event?.headers?.['X-Postgres-Worker-Id'] || process.env.POSTGRES_QUEUE_WORKER_ID);
   const run = await currentRun(commandRunId).catch(() => null);
   const postgresQueued = String(run?.execution_evidence?.orchestration || '').toUpperCase() === 'SUPABASE_POSTGRES'
     || String(run?.current_stage || '').toUpperCase().startsWith('POSTGRES_');
