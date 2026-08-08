@@ -9,7 +9,37 @@ export const handler = async event => {
   try {
     const body = parseBody(event);
     const stateCode = txt(body.state_code).toUpperCase();
+    const acquisitionDiscovery = txt(body.mission_type_key).toUpperCase() === 'ACQUISITION_DISCOVERY' || body.acquisition_discovery === true;
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
+
+    if (acquisitionDiscovery) {
+      const publishers = await db(`publisher_registry?state_code=eq.${encodeURIComponent(stateCode)}&machine_to_machine_supported=eq.true&county_name=not.is.null&select=county_name,county_fips&order=county_name.asc`).catch(() => []);
+      const counties = new Map();
+      for (const row of publishers || []) {
+        const name = txt(row.county_name);
+        if (!name) continue;
+        const fips = txt(row.county_fips) || null;
+        const key = `${name.toLowerCase()}|${fips || ''}`;
+        if (!counties.has(key)) counties.set(key, {
+          county_profile_id: null,
+          state_code: stateCode,
+          county_name: name,
+          county_fips: fips,
+          priority_tier: null,
+          expansion_score: null,
+          discovery_status: 'M2M_PUBLISHER_PRESENT',
+          publishers_discovered: 0,
+          platforms_identified: 0,
+          class_a_platforms: 0
+        });
+      }
+      return response(200, {
+        state_code: stateCode,
+        county_scope_required: true,
+        selection_policy: 'M2M_PUBLISHER_BACKED_COUNTIES',
+        counties: [...counties.values()].sort((a, b) => a.county_name.localeCompare(b.county_name) || String(a.county_fips || '').localeCompare(String(b.county_fips || '')))
+      });
+    }
 
     const [profiles, publishers] = await Promise.all([
       db(`county_expansion_profiles?state_code=eq.${encodeURIComponent(stateCode)}&select=id,state_code,county_name,county_fips,priority_tier,expansion_score,discovery_status,publishers_discovered,platforms_identified,class_a_platforms&order=county_name.asc`).catch(() => []),
