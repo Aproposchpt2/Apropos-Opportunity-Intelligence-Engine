@@ -1,7 +1,7 @@
 const TASKS={
   PUBLISHER_DISCOVERY:{agent:'Publisher Discovery',state:'required',county:true,operation:'command-mission-control'},
   VERIFY_PUBLISHER_CONNECTION:{agent:'Publisher Engineering',state:'required',county:true,publisher:true,operation:'command-mission-control'},
-  ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',county:true,publisher:true,publisherScope:true,operation:'command-mission-control'},
+  ACQUISITION_DISCOVERY:{agent:'Acquisition Operations',state:'required',county:true,publisher:true,operation:'command-mission-control'},
   CONTRACT_PACKAGE_ACQUISITION:{agent:'AADP Package Acquisition',state:'required',county:true,publisher:true,operation:'command-mission-control'},
   STATE_MISSION:{agent:'State Operations',state:'required',field:{id:'state_operation',label:'Operation',type:'select',options:[['EVALUATE_READINESS','Evaluate operational state'],['RECONCILE_CAPABILITIES','Reconcile capabilities'],['REFRESH_STATE_INTELLIGENCE','Refresh state intelligence']]},operation:'command-mission-control'},
   AADP_PROCESSING:{agent:'AADP Processing',state:'optional',field:{id:'processing_scope',label:'Processing Scope',type:'select',options:[['UNPROCESSED','Unprocessed acquisition records'],['FAILED_RETRYABLE','Retryable failures'],['RECENT','Recently acquired records'],['ALL_PENDING','All pending records']]},operation:'command-automated-task'},
@@ -28,12 +28,6 @@ function renderField(field){
   }
   return'';
 }
-function renderPublisherScopeSelector(){
-  return `<label>Publisher Scope<select id="eccPublisherScope" required><option value="SINGLE" selected>Single Publisher</option><option value="ALL_ELIGIBLE">All Eligible Publishers in Selected County</option></select><small>Each eligible publisher is queued as an independent isolated acquisition run.</small></label>`;
-}
-function currentPublisherScope(){
-  return taskEl().value==='ACQUISITION_DISCOVERY'?(document.getElementById('eccPublisherScope')?.value||'SINGLE'):'SINGLE';
-}
 function updateConnectorDisplay(){
   const publisher=document.getElementById('eccPublisher');
   const display=document.getElementById('eccConnectorDisplay');
@@ -46,56 +40,47 @@ async function renderPublisherSelector(){
   const county=document.getElementById('eccCounty');
   const fields=document.getElementById('eccPublisherFields');
   const verification=taskEl().value==='VERIFY_PUBLISHER_CONNECTION';
-  const scope=currentPublisherScope();
   if(!fields)return;
-  if(taskEl().value==='ACQUISITION_DISCOVERY'&&scope==='ALL_ELIGIBLE'){
-    if(!state||state==='ALL'||!county?.value){
-      fields.innerHTML='<div class="ecc-scope-note"><strong>All Eligible Publishers</strong><small>Select one state and county. APIE will queue one isolated acquisition run for each approved, EAG-001-certified publisher in that county.</small></div>';
-    }else{
-      fields.innerHTML=`<div class="ecc-scope-note"><strong>All Eligible Publishers — ${escAttr(county.value)}</strong><small>APIE will resolve eligible publishers from the registry and queue each publisher independently. One publisher failure cannot broaden or contaminate another publisher run.</small></div>`;
-    }
-    return;
-  }
   if(!state||state==='ALL'||!county?.value){
     fields.innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Select one county first</option></select><small>This task requires one state, one county, and one publisher.</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly></label>';
     return;
   }
-  fields.innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Loading county publisher profiles…</option></select><small>Loading verified publisher profiles for the selected county.</small></label><label>Connector<input id="eccConnectorDisplay" value="Resolving…" readonly></label>';
+  fields.innerHTML='<label>Publisher<select id="eccPublisher" required disabled><option value="">Loading eligible publishers…</option></select><small>Loading verified READY publishers for the selected county.</small></label><label>Connector<input id="eccConnectorDisplay" value="Resolving…" readonly></label>';
   try{
-    const d=await invoke('command-publisher-options',{state_code:state,county_name:county.value,include_testing:verification});
+    const d=await invoke('command-publisher-options',{state_code:state,county_name:county.value,include_testing:true});
     const rows=d.publishers||[];
     const options=rows.map(p=>{
-      const prepared=p.minimum_access_prepared===true;
-      const suffix=verification||p.selectable?'':prepared?' — PREPARED: VERIFY FIRST':' — NOT CERTIFIED';
-      return `<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}" data-execution-mode="${escAttr(p.execution_mode||'NOT_PREPARED')}"${(verification||p.selectable)?'':' disabled'}>${escAttr(p.publisher_name)} — ${escAttr(p.connector_label||'CONNECTOR PROFILE REQUIRED')}${suffix}</option>`;
+      const status=p.certification_status||'DEVELOPMENT';
+      const connector=p.connector_label||'CONNECTOR PROFILE REQUIRED';
+      return `<option value="${escAttr(p.publisher_id)}" data-method="${escAttr(p.acquisition_method||'AUTO')}" data-endpoint="${escAttr(p.search_endpoint||'')}" data-platform="${escAttr(p.platform||'')}" data-connector="${escAttr(connector)}" data-execution-mode="${escAttr(p.execution_mode||'VERIFICATION_REQUIRED')}">${escAttr(p.publisher_name)} — ${escAttr(status)}</option>`;
     }).join('');
-    const preparedCount=rows.filter(p=>p.minimum_access_prepared===true&&!p.selectable).length;
-    const note=verification?'EAG-001 performs one read-only, cost-capped validation against the selected official public source.':taskEl().value==='CONTRACT_PACKAGE_ACQUISITION'?'Retrieves and preserves every available official solicitation attachment, amendment, addendum, form, specification, and Q&A document. Packages are processed without OpenAI API usage.':`CERTIFIED or PRODUCTION publishers can execute immediately.${preparedCount?` ${preparedCount} minimum-access targets are prepared and listed below; verify one target at a time with EAG-001 to enable it.`:''}`;
-    const empty=rows.length?'':`<option value="" disabled>No publisher profiles are assigned to ${escAttr(county.value)}</option>`;
-    fields.innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${empty}${options}</select><small>${note}</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the county-scoped Publisher Profile.</small></label>`;
+    const empty=rows.length?'':`<option value="" disabled>No verified READY publishers are registered for ${escAttr(county.value)}</option>`;
+    const note=verification
+      ?'Select one eligible publisher. EAG-001 performs a read-only connection validation.'
+      :taskEl().value==='ACQUISITION_DISCOVERY'
+        ?'Publisher Scope is fixed to SINGLE. Select one eligible publisher at a time. Publishers that still require certification will be identified before acquisition begins.'
+        :'Select one eligible publisher at a time.';
+    fields.innerHTML=`<label>Publisher<select id="eccPublisher" required><option value="" selected>Select one publisher</option>${empty}${options}</select><small>${note}</small></label><label>Connector<input id="eccConnectorDisplay" value="Select a publisher" readonly><small>The connector is resolved from the selected Publisher Profile.</small></label>`;
     document.getElementById('eccPublisher')?.addEventListener('change',updateConnectorDisplay);
   }catch(err){fields.innerHTML=`<label>Publisher<select id="eccPublisher" required disabled><option value="">Publisher profiles unavailable</option></select><small>${escAttr(err.message)}</small></label><label>Connector<input id="eccConnectorDisplay" value="Unavailable" readonly></label>`}
 }
 async function renderCountyScope(task){
   const state=stateEl().value;
-  const scopeField=task.publisherScope?renderPublisherScopeSelector():'';
   if(!state||state==='ALL'){
-    configEl().innerHTML=`${scopeField}<label>County<select id="eccCounty" required disabled><option value="">Select one state first</option></select><small>County-centric tasks require one state and one county.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
-    document.getElementById('eccPublisherScope')?.addEventListener('change',renderPublisherSelector);
+    configEl().innerHTML=`<label>County<select id="eccCounty" required disabled><option value="">Select one state first</option></select><small>County-centric tasks require one state and one county.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
     if(task.publisher)await renderPublisherSelector();
     return;
   }
-  configEl().innerHTML=`${scopeField}<label>County<select id="eccCounty" required disabled><option value="">Loading county profiles…</option></select><small>Loading county expansion profiles.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
+  configEl().innerHTML=`<label>County<select id="eccCounty" required disabled><option value="">Loading county profiles…</option></select><small>Loading county expansion profiles.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
   try{
     const d=await invoke('command-county-options',{state_code:state});
     const rows=d.counties||[];
     const options=rows.map(c=>`<option value="${escAttr(c.county_name)}" data-fips="${escAttr(c.county_fips||'')}">${escAttr(c.county_name)}${c.county_fips?` — ${escAttr(c.county_fips)}`:''}</option>`).join('');
     const empty=rows.length?'':`<option value="" disabled>No county expansion profiles are registered for ${escAttr(state)}</option>`;
-    configEl().innerHTML=`${scopeField}<label>County<select id="eccCounty" required><option value="" selected>Select one county</option>${empty}${options}</select><small>Publisher Discovery is anchored to the selected county. Publisher tasks are filtered to that county.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
-    document.getElementById('eccPublisherScope')?.addEventListener('change',renderPublisherSelector);
+    configEl().innerHTML=`<label>County<select id="eccCounty" required><option value="" selected>Select one county</option>${empty}${options}</select><small>Publisher tasks are filtered to the selected county.</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;
     document.getElementById('eccCounty')?.addEventListener('change',()=>task.publisher&&renderPublisherSelector());
     if(task.publisher)await renderPublisherSelector();
-  }catch(err){configEl().innerHTML=`${scopeField}<label>County<select id="eccCounty" required disabled><option value="">County profiles unavailable</option></select><small>${escAttr(err.message)}</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`;document.getElementById('eccPublisherScope')?.addEventListener('change',renderPublisherSelector)}
+  }catch(err){configEl().innerHTML=`<label>County<select id="eccCounty" required disabled><option value="">County profiles unavailable</option></select><small>${escAttr(err.message)}</small></label>${task.publisher?'<div id="eccPublisherFields"></div>':''}`}
 }
 async function configureTask(){
   const task=TASKS[taskEl().value];setAgent(task?.agent||'');configEl().innerHTML='';
@@ -105,15 +90,14 @@ async function configureTask(){
   if(task.county)await renderCountyScope(task);else configEl().innerHTML=renderField(task.field)
 }
 function buildConfiguration(){
-  const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','COUNTY','PUBLISHER_SCOPE','PUBLISHER','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false};
+  const cfg={automation_mode:'FULLY_AUTOMATED',operator_controls:['TASK','STATE','COUNTY','PUBLISHER','EXECUTE'],manual_onboarding:false,manual_assignment:false,manual_connector_configuration:false,publisher_scope:'SINGLE'};
   const dynamic=document.getElementById('eccDynamicField');if(dynamic)cfg[dynamic.dataset.key]=dynamic.value;
   const county=document.getElementById('eccCounty');
   if(county?.value){const o=county.selectedOptions[0];cfg.county_name=county.value;cfg.county_fips=o?.dataset?.fips||null;cfg.geographic_scope='COUNTY'}
-  if(taskEl().value==='ACQUISITION_DISCOVERY')cfg.publisher_scope=currentPublisherScope();
   const publisher=document.getElementById('eccPublisher');
   if(publisher?.value){
     const o=publisher.selectedOptions[0];
-    cfg.publisher_scope='SINGLE';cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null;cfg.connector_key=o.dataset.connector||null;cfg.execution_mode=o.dataset.executionMode||null;
+    cfg.publisher_id=publisher.value;cfg.publisher_name=o.textContent.split(' — ')[0];cfg.acquisition_method=o.dataset.method||'AUTO';cfg.search_endpoint=o.dataset.endpoint||null;cfg.platform=o.dataset.platform||null;cfg.connector_key=o.dataset.connector||null;cfg.execution_mode=o.dataset.executionMode||null;
   }
   return cfg
 }
@@ -129,14 +113,13 @@ document.getElementById('eccLaunchForm').addEventListener('submit',async e=>{
   const dynamic=document.getElementById('eccDynamicField');if(dynamic&&!dynamic.value){msg.textContent=`Select ${dynamic.closest('label').childNodes[0].textContent.trim()}.`;return}
   const county=document.getElementById('eccCounty');
   if(task.county&&(!county||!county.value)){msg.textContent='Select one county before execution.';return}
-  const publisherScope=missionType==='ACQUISITION_DISCOVERY'?currentPublisherScope():'SINGLE';
   const publisher=document.getElementById('eccPublisher');
-  if(task.publisher&&publisherScope==='SINGLE'&&(!publisher||!publisher.value)){msg.textContent='Select one publisher before execution.';return}
-  const config=buildConfiguration(),publisherLabel=config.publisher_scope==='ALL_ELIGIBLE'?'All Eligible Publishers':config.publisher_name||'Not selected',countyLabel=config.county_name||'No county';
-  const publisherMissionLabel=task.publisher?(config.publisher_scope==='ALL_ELIGIBLE'?` — ${publisherLabel}`:` — Publisher ${publisherLabel}`):'';
+  if(task.publisher&&(!publisher||!publisher.value)){msg.textContent='Select one publisher before execution.';return}
+  const config=buildConfiguration(),publisherLabel=config.publisher_name||'Not selected',countyLabel=config.county_name||'No county';
+  const publisherMissionLabel=task.publisher?` — Publisher ${publisherLabel}`:'';
   const payload={mission_type_key:missionType,state_code:stateCode==='ALL'?null:stateCode,assigned_agent:agent,mission_name:`${selectedText(taskEl())} — ${stateCode==='ALL'?'All States':selectedText(stateEl())} — ${countyLabel}${publisherMissionLabel}`,mission_config:config,...config};
   window.eccBeginTaskForce?.(missionType,stateCode==='ALL'?null:stateCode);
-  msg.textContent=missionType==='VERIFY_PUBLISHER_CONNECTION'?'EAG-001 is testing the production connector without acquiring records…':missionType==='PUBLISHER_DISCOVERY'?`APIE is launching county-centric publisher and platform discovery for ${countyLabel}…`:missionType==='CONTRACT_PACKAGE_ACQUISITION'?`AADP is retrieving, preserving, and extracting complete official solicitation packages for ${publisherLabel}…`:missionType==='ACQUISITION_DISCOVERY'&&config.publisher_scope==='ALL_ELIGIBLE'?`APIE is queueing one isolated acquisition run for every eligible publisher in ${countyLabel}…`:'APIE is resolving the county-scoped Publisher Profile and executing the assigned connector…';
-  try{const r=await invoke(task.operation,payload);const runId=resolveRunId(r);window.eccFocusTaskForce?.(runId);msg.textContent=config.publisher_scope==='ALL_ELIGIBLE'?`Task Force launched. ${Number(r.queued_publishers||0)} eligible publisher runs queued.`:`Task Force launched. ${r.execution?.status||r.execution?.dispatch_status||r.run?.status||'Monitoring started'}.`;await eccLoad()}
+  msg.textContent=missionType==='VERIFY_PUBLISHER_CONNECTION'?'EAG-001 is testing the selected publisher connection…':missionType==='PUBLISHER_DISCOVERY'?`APIE is launching county-centric publisher and platform discovery for ${countyLabel}…`:missionType==='CONTRACT_PACKAGE_ACQUISITION'?`AADP is retrieving the complete official solicitation package for ${publisherLabel}…`:'APIE is launching a single-publisher acquisition mission…';
+  try{const r=await invoke(task.operation,payload);const runId=resolveRunId(r);window.eccFocusTaskForce?.(runId);msg.textContent=`Task Force launched. ${r.execution?.status||r.execution?.dispatch_status||r.run?.status||'Monitoring started'}.`;await eccLoad()}
   catch(err){window.eccClearTaskForceMonitor?.();msg.textContent=err.message}
 });
