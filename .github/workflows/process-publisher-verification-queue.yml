@@ -11,6 +11,7 @@ on:
       - netlify/functions/command-verify-publisher-connection-background.js
       - netlify/functions/command-mission-control.js
       - netlify/functions/_shared/acquisition-connectors/**
+      - supabase/migrations/**
   schedule:
     - cron: '*/5 * * * *'
 
