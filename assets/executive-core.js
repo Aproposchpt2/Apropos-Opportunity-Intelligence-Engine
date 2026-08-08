@@ -8,6 +8,7 @@ let authenticatedDispatchComplete=false;
 const NETLIFY_FUNCTIONS={
   'provider-health':'provider-health',
   'command-mission-control':'command-mission-control',
+  'command-m2m-acquisition-discovery':'command-m2m-acquisition-discovery',
   'command-acquisition-mission':'command-acquisition-mission',
   'command-automated-task':'command-automated-task',
   'command-executive-status':'command-executive-status',
@@ -290,7 +291,7 @@ authView('gateResetForm').addEventListener('submit',async event=>{
     clearExecutiveSession();
     returnToLogin(data.message||'Password updated. Sign in with the new password.');
   }catch(error){
-    setAuthMode('reset',{error:error.message});
+    setAuthMode('reset',{error:error.message})}
   }
 });
 
