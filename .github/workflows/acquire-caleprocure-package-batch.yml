@@ -8,6 +8,11 @@ on:
         required: false
         default: '1'
         type: string
+      target_source_record_id:
+        description: Optional exact Cal eProcure source record for qualification
+        required: false
+        default: '2740:26-086'
+        type: string
 
   push:
     branches:
@@ -32,6 +37,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TARGET_COMPLETIONS: '1'
+      TARGET_SOURCE_RECORD_ID: ${{ github.event.inputs.target_source_record_id || '2740:26-086' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +50,7 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Acquire and persist one Cal eProcure package
+      - name: Acquire and persist targeted Cal eProcure package
         run: node scripts/acquire-caleprocure-package-batch.mjs
 
       - name: Upload acquisition evidence
@@ -58,5 +64,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-# Qualification phase: one contract per run. Automatic continuation is intentionally disabled
-# until runtime, document count, package bytes, persistence, and reconciliation are measured.
+# Qualification phase: one targeted contract per run. Automatic continuation remains disabled
+# while package weight, persistence, reconciliation, and timeout behavior are measured.
