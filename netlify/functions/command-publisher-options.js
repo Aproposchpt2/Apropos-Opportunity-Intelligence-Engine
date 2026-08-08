@@ -43,6 +43,14 @@ export const handler = async event => {
         const approved = isApprovedProfile(configuration);
         const certified = ['CERTIFIED', 'PRODUCTION'].includes(certificationStatus);
         const machineToMachine = p.machine_to_machine_supported === true || configuration.machine_to_machine_supported === true;
+        // Distinct from certification_status (a PRODUCTION/EAG-001 concept).
+        // This tracks only whether configure-m2m-publisher-profile.js has
+        // derived an executable discovery profile for this publisher.
+        const discoveryConfigurationStatus = !machineToMachine
+          ? null
+          : configuration.discovery_configuration_status === 'DISCOVERY_CONFIGURED' && Boolean(commandInstruction)
+            ? 'DISCOVERY_CONFIGURED'
+            : 'MANUAL_REVIEW_REQUIRED';
         const minimumAccessPrepared = acquisitionProfile.enabled === true
           && String(acquisitionProfile.access_tier || '').toUpperCase() === 'MINIMUM_ACCESS'
           && Boolean(commandInstruction)
@@ -93,12 +101,15 @@ export const handler = async event => {
           minimum_access_prepared: minimumAccessPrepared,
           m2m_discovery_ready: machineToMachine,
           acquisition_instruction_configured: Boolean(commandInstruction),
+          discovery_configuration_status: discoveryConfigurationStatus,
           execution_mode: executionMode,
           selectable: acquisitionDiscovery ? machineToMachine : (includeTesting || certified),
           eligible_for_selection: acquisitionDiscovery ? machineToMachine : true,
           eligible_for_acquisition: approved && certified,
           readiness_reason: acquisitionDiscovery
-            ? 'M2M publisher is available for operator-led Acquisition Discovery. Discovery will determine and validate the usable acquisition method.'
+            ? (discoveryConfigurationStatus === 'DISCOVERY_CONFIGURED'
+                ? 'M2M publisher has a discovery profile configured. Discovery will validate the usable acquisition method against current-run evidence.'
+                : 'M2M publisher requires discovery-profile configuration.')
             : certified
               ? null
               : minimumAccessPrepared
