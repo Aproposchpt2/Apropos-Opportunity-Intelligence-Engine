@@ -23,6 +23,7 @@ export const handler = async event => {
     const stateCode = String(body.state_code || '').trim().toUpperCase();
     const countyName = String(body.county_name || '').trim();
     const includeTesting = body.include_testing === true;
+    const acquisitionDiscovery = body.mission_type_key === 'ACQUISITION_DISCOVERY' || body.acquisition_discovery === true;
     if (!/^[A-Z]{2}$/.test(stateCode)) return response(400, { error: 'Valid state_code is required.' });
     if (!countyName) return response(400, { error: 'county_name is required.' });
 
@@ -39,6 +40,7 @@ export const handler = async event => {
         const certificationStatus = String(configuration.certification_status || 'DEVELOPMENT').toUpperCase();
         const approved = isApprovedProfile(configuration);
         const certified = ['CERTIFIED', 'PRODUCTION'].includes(certificationStatus);
+        const machineToMachine = p.machine_to_machine_supported === true || configuration.machine_to_machine_supported === true;
         const minimumAccessPrepared = acquisitionProfile.enabled === true
           && String(acquisitionProfile.access_tier || '').toUpperCase() === 'MINIMUM_ACCESS'
           && Boolean(commandInstruction)
@@ -48,6 +50,17 @@ export const handler = async event => {
           && configuration.stateful_session_required !== true
           && configuration.javascript_required !== true
           && configuration.browser_automation_required !== true;
+        const m2mDiscoveryReady = machineToMachine
+          && Boolean(endpoint)
+          && configuration.authentication_required !== true
+          && configuration.login_required !== true;
+        const executionMode = certified
+          ? 'CERTIFIED_CONNECTOR'
+          : m2mDiscoveryReady
+            ? 'M2M_ACQUISITION_DISCOVERY'
+            : minimumAccessPrepared
+              ? 'EAG_001_REQUIRED'
+              : 'VERIFICATION_REQUIRED';
 
         return {
           publisher_id: p.id,
@@ -61,13 +74,13 @@ export const handler = async event => {
           search_endpoint: endpoint,
           platform: configuration.procurement_platform || null,
           access_class: p.access_class || configuration.access_class || configuration.platform_access_class || 'UNKNOWN',
-          machine_to_machine_supported: p.machine_to_machine_supported ?? configuration.machine_to_machine_supported ?? null,
+          machine_to_machine_supported: machineToMachine,
           connector_strategy: p.connector_strategy || configuration.connector_strategy || configuration.recommended_connector_strategy || null,
           engineering_complexity: p.engineering_complexity || configuration.engineering_complexity || 'UNKNOWN',
           reuse_score: p.reuse_score == null ? null : Number(p.reuse_score),
           connector_roi_score: p.connector_roi_score == null ? null : Number(p.connector_roi_score),
           connector_key: connectorKey,
-          connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || 'CONNECTOR PROFILE REQUIRED',
+          connector_label: connectorKey === 'AGENT_PUBLIC_SOURCE_DISCOVERY' ? 'TARGETED PUBLIC-SOURCE AGENT' : connectorKey || (m2mDiscoveryReady ? 'M2M PROFILE' : 'CONNECTOR PROFILE REQUIRED'),
           connector_version: configuration.connector_version || null,
           certification_status: certificationStatus,
           approval_status: String(configuration.approval_status || 'PENDING').toUpperCase(),
@@ -79,25 +92,33 @@ export const handler = async event => {
           publisher_profile_approved: configuration.publisher_profile_approved === true,
           approved_for_operator_menu: configuration.approved_for_operator_menu === true,
           minimum_access_prepared: minimumAccessPrepared,
+          m2m_discovery_ready: m2mDiscoveryReady,
           acquisition_instruction_configured: Boolean(commandInstruction),
-          execution_mode: certified ? 'CERTIFIED_CONNECTOR' : minimumAccessPrepared ? 'EAG_001_REQUIRED' : 'VERIFICATION_REQUIRED',
-          selectable: includeTesting || certified,
-          eligible_for_selection: true,
+          execution_mode: executionMode,
+          selectable: acquisitionDiscovery ? m2mDiscoveryReady : (includeTesting || certified),
+          eligible_for_selection: acquisitionDiscovery ? m2mDiscoveryReady : true,
           eligible_for_acquisition: approved && certified,
           readiness_reason: certified
             ? null
-            : minimumAccessPrepared
-              ? 'READY publisher requires EAG-001 certification before acquisition.'
-              : 'READY publisher requires connector verification before acquisition.'
+            : m2mDiscoveryReady
+              ? 'Machine-to-machine source is ready for Acquisition Discovery testing.'
+              : minimumAccessPrepared
+                ? 'READY publisher requires EAG-001 certification before acquisition.'
+                : 'READY publisher requires connector verification before acquisition.'
         };
+      })
+      .filter(p => !acquisitionDiscovery || p.m2m_discovery_ready)
+      .sort((a, b) => {
+        if (a.machine_to_machine_supported !== b.machine_to_machine_supported) return a.machine_to_machine_supported ? -1 : 1;
+        return a.publisher_name.localeCompare(b.publisher_name);
       });
 
     return response(200, {
       state_code: stateCode,
       county_name: countyName,
       execution_scope: 'SINGLE_COUNTY_SINGLE_PUBLISHER',
-      selection_policy: 'ALL_VERIFIED_READY_PUBLISHERS',
-      acquisition_policy: 'CERTIFICATION_REQUIRED_AT_EXECUTION',
+      selection_policy: acquisitionDiscovery ? 'VERIFIED_READY_M2M_PUBLISHERS' : 'ALL_VERIFIED_READY_PUBLISHERS',
+      acquisition_policy: acquisitionDiscovery ? 'M2M_DISCOVERY_ALLOWED_CERTIFICATION_REQUIRED_FOR_PRODUCTION' : 'CERTIFICATION_REQUIRED_AT_EXECUTION',
       include_testing: includeTesting,
       publisher_count: publishers.length,
       publishers
