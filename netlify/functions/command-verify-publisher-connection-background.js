@@ -5,6 +5,7 @@ const now = () => new Date().toISOString();
 const txt = value => String(value ?? '').trim();
 async function patchRun(id, values) { await db(`command_runs?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ ...values, last_activity_at: now() }) }); }
 async function latestReadyAssignment(id) { return (await db(`publisher_assignments?publisher_id=eq.${encodeURIComponent(id)}&status=eq.READY&select=*&order=updated_at.desc&limit=1`))?.[0] || null; }
+async function currentRun(id) { return (await db(`command_runs?id=eq.${encodeURIComponent(id)}&select=id,status,current_stage,execution_evidence`))?.[0] || null; }
 
 export const handler = async event => {
   if (event?.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
@@ -12,21 +13,75 @@ export const handler = async event => {
   const body = parseBody(event), commandRunId = txt(body.command_run_id), stateCode = txt(body.state_code).toUpperCase(), publisherId = txt(body.publisher_id);
   if (!commandRunId || !/^[A-Z]{2}$/.test(stateCode) || !publisherId) return response(400, { error: 'command_run_id, state_code, and publisher_id are required.' });
 
+  const postgresWorkerId = txt(event?.headers?.['x-postgres-worker-id'] || event?.headers?.['X-Postgres-Worker-Id']);
+  const run = await currentRun(commandRunId).catch(() => null);
+  const postgresQueued = String(run?.execution_evidence?.orchestration || '').toUpperCase() === 'SUPABASE_POSTGRES'
+    || String(run?.current_stage || '').toUpperCase().startsWith('POSTGRES_');
+  if (postgresQueued && !postgresWorkerId) {
+    return response(202, {
+      ok: true,
+      delegated: true,
+      runtime: 'SUPABASE_POSTGRES',
+      worker: 'GITHUB_ACTIONS',
+      command_run_id: commandRunId,
+      current_stage: run?.current_stage || 'POSTGRES_EXECUTION_QUEUED'
+    });
+  }
+
   try {
-    await patchRun(commandRunId, { status: 'running', aadp_state: 'RUNNING', current_stage: 'EAG_001_RESOLVING_CONNECTOR', progress_value: 10, validation_status: 'PENDING', result_summary: 'Resolving the publisher profile and production connector.' });
+    await patchRun(commandRunId, {
+      status: 'running',
+      aadp_state: 'RUNNING',
+      current_stage: 'EAG_001_PROFILE_LOADING',
+      progress_value: 10,
+      validation_status: 'PENDING',
+      result_summary: 'Loading the approved Publisher Profile and READY acquisition assignment.'
+    });
+
     const publisher = (await db(`publisher_registry?id=eq.${encodeURIComponent(publisherId)}&state_code=eq.${stateCode}&verified=eq.true&select=*`))?.[0];
     if (!publisher) throw new Error('The selected verified publisher was not found.');
     const assignment = await latestReadyAssignment(publisherId);
     if (!assignment) throw new Error('The selected publisher has no READY acquisition assignment.');
+
+    await patchRun(commandRunId, {
+      current_stage: 'EAG_001_RESOLVING_CONNECTOR',
+      progress_value: 20,
+      result_summary: `${publisher.publisher_name}: approved Publisher Profile loaded; resolving connector.`
+    });
+
     const connector = resolveConnector({ publisher, assignment });
     if (typeof connector.verify !== 'function') throw new Error(`${connector.key} does not implement EAG-001 verify().`);
     const endpoint = txt(assignment.search_endpoint || publisher.search_endpoint || publisher.procurement_website || publisher.official_website);
 
-    await patchRun(commandRunId, { current_stage: 'EAG_001_VERIFYING_SEARCH', progress_value: 25, result_summary: `${publisher.publisher_name}: verifying structured solicitation records.` });
+    await patchRun(commandRunId, {
+      current_stage: 'EAG_001_VERIFYING_SEARCH',
+      progress_value: 35,
+      result_summary: `${publisher.publisher_name}: connector ${connector.key} resolved; testing listing/search connection.`,
+      execution_evidence: {
+        ...(run?.execution_evidence || {}),
+        connector_key: connector.key,
+        connector_version: connector.version || '1.0.0',
+        source_url: endpoint,
+        publisher_id: publisher.id,
+        publisher_name: publisher.publisher_name,
+        assignment_status: assignment.status || 'READY'
+      }
+    });
+
     const report = await connector.verify({ endpoint, publisher, assignment, sampleSize: Number(body.sample_size || 10), onSample: async status => {
-      const pct = 35 + Math.round((status.processed / Math.max(status.total, 1)) * 50);
-      await patchRun(commandRunId, { current_stage: 'EAG_001_VERIFYING_DETAIL_RECORDS', progress_value: Math.min(85, pct), result_summary: `Detail verification: ${status.processed}/${status.total}; ${status.passed} passed.` });
+      const pct = 50 + Math.round((status.processed / Math.max(status.total, 1)) * 35);
+      await patchRun(commandRunId, {
+        current_stage: 'EAG_001_VERIFYING_DETAIL_RECORDS',
+        progress_value: Math.min(85, pct),
+        result_summary: `Detail verification: ${status.processed}/${status.total}; ${status.passed} passed.`
+      });
     }});
+
+    await patchRun(commandRunId, {
+      current_stage: 'EAG_001_CERTIFICATION_DECISION',
+      progress_value: 90,
+      result_summary: `${publisher.publisher_name}: verification evidence captured; preparing EAG-001 certification decision.`
+    });
 
     const certification = report.ready_for_acquisition ? 'CERTIFIED' : 'TESTING';
     const acceptanceStatus = report.ready_for_acquisition ? 'ACCEPTED' : 'TESTING';
@@ -37,13 +92,13 @@ export const handler = async event => {
     await db(`publisher_registry?id=eq.${publisher.id}`, { method: 'PATCH', body: JSON.stringify({ configuration: { ...(publisher.configuration || {}), connector_key: connector.key, connector_version: connector.version || '1.0.0', certification_status: certification, last_verification_at: now(), eag_001: report }, updated_at: now() }) });
 
     const summary = `${publisher.publisher_name}: EAG-001 ${report.ready_for_acquisition ? 'PASS' : 'WARNING'}; ${report.records_parsed} structured records; detail sample ${report.detail_pages_successful}/${report.sample_size}; pagination ${report.pagination_status}; certification ${certification}; acceptance ${acceptanceStatus}.`;
-    await patchRun(commandRunId, { status: 'completed', aadp_state: 'COMPLETED', current_stage: 'EAG_001_COMPLETED', progress_value: 100, records_discovered: report.records_parsed, records_acquired: 0, records_accepted: report.detail_pages_successful, records_rejected: report.failures, warning_count: report.ready_for_acquisition ? 0 : 1, action_required: !report.ready_for_acquisition, completed_at: now(), validation_status: report.ready_for_acquisition ? 'PASSED' : 'WARNING', result_summary: summary, execution_evidence: { ...report, acceptance_status: acceptanceStatus, certification_status: certification } });
+    await patchRun(commandRunId, { status: 'completed', aadp_state: 'COMPLETED', current_stage: 'EAG_001_COMPLETED', progress_value: 100, records_discovered: report.records_parsed, records_acquired: 0, records_accepted: report.detail_pages_successful, records_rejected: report.failures, warning_count: report.ready_for_acquisition ? 0 : 1, action_required: !report.ready_for_acquisition, completed_at: now(), validation_status: report.ready_for_acquisition ? 'PASSED' : 'WARNING', result_summary: summary, execution_evidence: { ...(run?.execution_evidence || {}), ...report, connector_key: connector.key, connector_version: connector.version || '1.0.0', source_url: endpoint, publisher_id: publisher.id, publisher_name: publisher.publisher_name, assignment_status: assignment.status || 'READY', acceptance_status: acceptanceStatus, certification_status: certification, worker_claimed: true, worker_id: postgresWorkerId || null } });
     return response(200, { ok: true, command_run_id: commandRunId, publisher_name: publisher.publisher_name, connector_key: connector.key, acceptance_status: acceptanceStatus, certification_status: certification, report });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const diagnostics = error && typeof error === 'object' && error.diagnostics ? error.diagnostics : null;
     const stage = diagnostics ? 'EAG_001_DIAGNOSTIC_CAPTURED' : 'EAG_001_FAILED';
-    await patchRun(commandRunId, { status: 'failed', aadp_state: 'FAILED', current_stage: stage, progress_value: 100, failure_count: 1, action_required: true, completed_at: now(), validation_status: 'FAILED', result_summary: message, execution_evidence: { error: message, error_code: error?.code || null, diagnostics } }).catch(() => null);
+    await patchRun(commandRunId, { status: 'failed', aadp_state: 'FAILED', current_stage: stage, progress_value: 100, failure_count: 1, action_required: true, completed_at: now(), validation_status: 'FAILED', result_summary: message, execution_evidence: { ...(run?.execution_evidence || {}), error: message, error_code: error?.code || null, diagnostics, worker_claimed: Boolean(postgresWorkerId), worker_id: postgresWorkerId || null } }).catch(() => null);
     return response(500, { error: message, code: error?.code || null, diagnostics });
   }
 };
