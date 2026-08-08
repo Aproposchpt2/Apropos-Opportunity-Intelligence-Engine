@@ -2,115 +2,22 @@
   const inventoryState={timer:null,loading:false};
   const byId=id=>document.getElementById(id);
   const format=value=>Number(value||0).toLocaleString();
-
-  function setStatus(id,label,className=''){
-    const element=byId(id);
-    if(!element)return;
-    element.textContent=label;
-    element.className=`ecc-inventory-status${className?` ${className}`:''}`;
-  }
-
-  function setText(id,value){
-    const element=byId(id);
-    if(element)element.textContent=value;
-  }
-
-  function statusClass(status){
-    const value=String(status||'').toLowerCase();
-    if(['completed','operational','success','active'].includes(value))return'ecc-pass';
-    if(['running','queued','processing'].includes(value))return'ecc-running';
-    if(['completed_with_failures','warning','attention'].includes(value))return'ecc-warning';
-    if(['failed','error'].includes(value))return'ecc-error';
-    return'ecc-loading';
-  }
-
-  function batchRatio(lastBatch){
-    if(!lastBatch)return'—';
-    const match=String(lastBatch.result_summary||'').match(/(\d+)\s+of\s+(\d+)/i);
-    return match?`${match[1]} / ${match[2]}`:format(lastBatch.records_acquired);
-  }
-
-  function setCalEprocureRefreshing(){
-    [
-      'eccCaleprocureRecordStatus',
-      'eccCaleprocurePackageStatus',
-      'eccCaleprocureQueueStatus',
-      'eccCaleprocureQuarantineStatus',
-      'eccCaleprocureAutomationStatus',
-      'eccCaleprocureLastBatchStatus'
-    ].forEach(id=>setStatus(id,'Refreshing','ecc-loading'));
-  }
-
+  function setStatus(id,label,className=''){const element=byId(id);if(!element)return;element.textContent=label;element.className=`ecc-inventory-status${className?` ${className}`:''}`;}
+  function setText(id,value){const element=byId(id);if(element)element.textContent=value;}
+  function statusClass(status){const value=String(status||'').toLowerCase();if(['completed','operational','success','active'].includes(value))return'ecc-pass';if(['running','queued','processing'].includes(value))return'ecc-running';if(['completed_with_failures','warning','attention'].includes(value))return'ecc-warning';if(['failed','error'].includes(value))return'ecc-error';return'ecc-loading';}
+  function batchRatio(lastBatch){if(!lastBatch)return'—';const match=String(lastBatch.result_summary||'').match(/(\d+)\s+of\s+(\d+)/i);return match?`${match[1]} / ${match[2]}`:format(lastBatch.records_acquired);}
+  function setCalEprocureRefreshing(){['eccCaleprocureRecordStatus','eccCaleprocurePackageStatus','eccCaleprocureQueueStatus','eccCaleprocureQuarantineStatus','eccCaleprocureAutomationStatus','eccCaleprocureLastBatchStatus'].forEach(id=>setStatus(id,'Refreshing','ecc-loading'));}
   async function loadInventory(){
-    if(inventoryState.loading)return;
-    inventoryState.loading=true;
-    setStatus('eccCurrentContractStatus','Refreshing','ecc-loading');
-    setStatus('eccPublisherStatus','Refreshing','ecc-loading');
-    setCalEprocureRefreshing();
-
+    if(inventoryState.loading)return;inventoryState.loading=true;setStatus('eccCurrentContractStatus','Refreshing','ecc-loading');setStatus('eccPublisherStatus','Refreshing','ecc-loading');setCalEprocureRefreshing();
     try{
-      const data=await invoke('command-dashboard-inventory',{});
-      const contracts=byId('eccCurrentContractCount');
-      const publishers=byId('eccPublisherCount');
-      const contractDetail=byId('eccCurrentContractDetail');
-      const publisherDetail=byId('eccPublisherDetail');
-      const updated=byId('eccInventoryUpdated');
-      const caleprocure=data.caleprocure||{};
-      const automation=caleprocure.automation||{};
-      const lastBatch=caleprocure.last_batch||null;
-
-      if(contracts)contracts.textContent=format(data.current_contracts);
-      if(publishers)publishers.textContent=format(data.publishers);
-      if(contractDetail)contractDetail.textContent=`${format(data.total_contract_records)} canonical records`;
-      if(publisherDetail)publisherDetail.textContent=`${format(data.verified_publishers)} verified profiles`;
-      if(updated)updated.textContent=`Updated ${new Date(data.generated_at||Date.now()).toLocaleTimeString()}`;
-
-      setStatus('eccCurrentContractStatus','Live','ecc-pass');
-      setStatus('eccPublisherStatus','Live','ecc-pass');
-
-      setText('eccCaleprocureRecordCount',format(caleprocure.records));
-      setText('eccCaleprocurePackageComplete',format(caleprocure.package_complete));
-      setText('eccCaleprocureQueueCount',format(caleprocure.open_normal_queue));
-      setText('eccCaleprocureQuarantined',format(caleprocure.quarantined));
-      setText('eccCaleprocureAutomationValue',`${format(automation.normal_batch_size||5)} / batch`);
-      setText('eccCaleprocureAutomationDetail',automation.mode==='CONTINUOUS_BATCH_CHAIN'?'Serialized automatic continuation until the eligible queue is exhausted':'Acquisition configuration unavailable');
-      setText('eccCaleprocureLastBatchCount',batchRatio(lastBatch));
-      setText('eccCaleprocureLastBatchDetail',lastBatch?.result_summary||'No Cal eProcure batch has been recorded yet.');
-      setText('eccCaleprocureUpdated',`Updated ${new Date(data.generated_at||Date.now()).toLocaleTimeString()}`);
-
-      setStatus('eccCaleprocureRecordStatus','Live','ecc-pass');
-      setStatus('eccCaleprocurePackageStatus','Verified','ecc-pass');
-      setStatus('eccCaleprocureQueueStatus',Number(caleprocure.open_normal_queue||0)>0?'Available':'Exhausted',Number(caleprocure.open_normal_queue||0)>0?'ecc-running':'ecc-pass');
-      setStatus('eccCaleprocureQuarantineStatus',Number(caleprocure.quarantined||0)>0?'Review':'Clear',Number(caleprocure.quarantined||0)>0?'ecc-warning':'ecc-pass');
-      setStatus('eccCaleprocureAutomationStatus',automation.status||'Ready',statusClass(automation.status));
-      setStatus('eccCaleprocureLastBatchStatus',lastBatch?.status||'Waiting',statusClass(lastBatch?.status));
-    }catch(error){
-      console.error('Dashboard inventory unavailable:',error);
-      const updated=byId('eccInventoryUpdated');
-      if(updated)updated.textContent='Inventory unavailable';
-      setText('eccCaleprocureUpdated','Acquisition status unavailable');
-      setStatus('eccCurrentContractStatus','Unavailable','ecc-error');
-      setStatus('eccPublisherStatus','Unavailable','ecc-error');
-      [
-        'eccCaleprocureRecordStatus',
-        'eccCaleprocurePackageStatus',
-        'eccCaleprocureQueueStatus',
-        'eccCaleprocureQuarantineStatus',
-        'eccCaleprocureAutomationStatus',
-        'eccCaleprocureLastBatchStatus'
-      ].forEach(id=>setStatus(id,'Unavailable','ecc-error'));
-    }finally{
-      inventoryState.loading=false;
-    }
+      const data=await invoke('command-dashboard-inventory',{});const contracts=byId('eccCurrentContractCount');const publishers=byId('eccPublisherCount');const contractDetail=byId('eccCurrentContractDetail');const publisherDetail=byId('eccPublisherDetail');const updated=byId('eccInventoryUpdated');const caleprocure=data.caleprocure||{};const automation=caleprocure.automation||{};const lastBatch=caleprocure.last_batch||null;
+      if(contracts)contracts.textContent=format(data.current_contracts);if(publishers)publishers.textContent=format(data.publishers);if(contractDetail)contractDetail.textContent=`${format(data.total_contract_records)} canonical records`;if(publisherDetail)publisherDetail.textContent=`${format(data.verified_publishers)} verified · ${format(data.m2m_publishers)} M2M`;if(updated)updated.textContent=`Updated ${new Date(data.generated_at||Date.now()).toLocaleTimeString()}`;
+      setStatus('eccCurrentContractStatus','Live','ecc-pass');setStatus('eccPublisherStatus','Live','ecc-pass');
+      setText('eccCaleprocureRecordCount',format(caleprocure.records));setText('eccCaleprocurePackageComplete',`${format(caleprocure.package_complete)} / ${format(caleprocure.inventory_target||500)}`);setText('eccCaleprocureQueueCount',format(caleprocure.open_normal_queue));setText('eccCaleprocureQuarantined',format(caleprocure.quarantined));
+      setText('eccCaleprocureAutomationValue',`${format(automation.contracts_per_run||1)} contract / run`);setText('eccCaleprocureAutomationDetail',automation.mode==='SERIALIZED_SINGLE_CONTRACT_LANE'?`${format(automation.interval_minutes||5)}-minute interval · continuation ${automation.continuation_enabled?'ON':'OFF'} · continue after failure ${automation.continue_after_failure?'ON':'OFF'}`:'Acquisition configuration unavailable');
+      setText('eccCaleprocureLastBatchCount',batchRatio(lastBatch));setText('eccCaleprocureLastBatchDetail',lastBatch?.result_summary||'No Cal eProcure acquisition run has been recorded yet.');setText('eccCaleprocureUpdated',`Updated ${new Date(data.generated_at||Date.now()).toLocaleTimeString()}`);
+      setStatus('eccCaleprocureRecordStatus','Live','ecc-pass');setStatus('eccCaleprocurePackageStatus',Number(caleprocure.package_complete||0)>=Number(caleprocure.inventory_target||500)?'Target Met':'Building','ecc-pass');setStatus('eccCaleprocureQueueStatus',Number(caleprocure.open_normal_queue||0)>0?'Available':'Exhausted',Number(caleprocure.open_normal_queue||0)>0?'ecc-running':'ecc-pass');setStatus('eccCaleprocureQuarantineStatus',Number(caleprocure.quarantined||0)>0?'Review':'Clear',Number(caleprocure.quarantined||0)>0?'ecc-warning':'ecc-pass');setStatus('eccCaleprocureAutomationStatus',automation.status||'Ready',statusClass(automation.status));setStatus('eccCaleprocureLastBatchStatus',lastBatch?.status||'Waiting',statusClass(lastBatch?.status));
+    }catch(error){console.error('Dashboard inventory unavailable:',error);const updated=byId('eccInventoryUpdated');if(updated)updated.textContent='Inventory unavailable';setText('eccCaleprocureUpdated','Acquisition status unavailable');setStatus('eccCurrentContractStatus','Unavailable','ecc-error');setStatus('eccPublisherStatus','Unavailable','ecc-error');['eccCaleprocureRecordStatus','eccCaleprocurePackageStatus','eccCaleprocureQueueStatus','eccCaleprocureQuarantineStatus','eccCaleprocureAutomationStatus','eccCaleprocureLastBatchStatus'].forEach(id=>setStatus(id,'Unavailable','ecc-error'));}finally{inventoryState.loading=false;}
   }
-
-  window.addEventListener('apie:authenticated',()=>{
-    clearInterval(inventoryState.timer);
-    loadInventory();
-    inventoryState.timer=setInterval(loadInventory,15000);
-  });
-
-  document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='visible')loadInventory();
-  });
+  window.addEventListener('apie:authenticated',()=>{clearInterval(inventoryState.timer);loadInventory();inventoryState.timer=setInterval(loadInventory,15000);});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadInventory();});
 })();
