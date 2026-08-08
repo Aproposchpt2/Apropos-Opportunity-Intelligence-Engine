@@ -109,6 +109,7 @@
   }
 
   function evidenceForStage(run,stage){
+    if(typeof stage.completionTest==='function')return stage.completionTest(run)===true;
     const paths=stage.completionEvidence||stage.evidence||[];
     return stage.requireAll?hasAll(run,paths):hasAny(run,paths);
   }
@@ -118,9 +119,6 @@
     const currentIndex=stages.findIndex(stage=>matchesCurrentStage(run,stage.currentStages));
     const evidenced=stages.map((stage,i)=>evidenceForStage(run,stage)?i:-1).filter(i=>i>=0);
     const evidenceIndex=evidenced.length?Math.min(stages.length-1,Math.max(...evidenced)+1):-1;
-    // Current-stage fields can lag one checkpoint behind the evidence written by the worker.
-    // Never leave the visual monitor parked on an earlier stage after a later stage has
-    // current-run completion evidence. Advance the active meter to the next stage instead.
     if(currentIndex>=0&&evidenceIndex>=0)return Math.max(currentIndex,evidenceIndex);
     if(currentIndex>=0)return currentIndex;
     if(evidenceIndex>=0)return evidenceIndex;
