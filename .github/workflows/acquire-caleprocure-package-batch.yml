@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       target_completions:
-        description: Contracts to complete in this batch (1-5)
+        description: Contracts to complete in this qualification run
         required: false
-        default: '5'
+        default: '1'
         type: string
 
   push:
@@ -31,7 +31,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TARGET_COMPLETIONS: ${{ github.event.inputs.target_completions || '5' }}
+      TARGET_COMPLETIONS: '1'
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Acquire and persist Cal eProcure package batch
+      - name: Acquire and persist one Cal eProcure package
         run: node scripts/acquire-caleprocure-package-batch.mjs
 
       - name: Upload acquisition evidence
@@ -58,37 +58,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Continue eligible Cal eProcure backlog
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          remaining="$(node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('caleprocure-package-batch-result.json','utf8'));process.stdout.write(String(Number(r.remaining_eligible_backlog||0)))")"
-          if [ "$remaining" -le 0 ]; then
-            echo "Cal eProcure eligible backlog exhausted."
-            exit 0
-          fi
-
-          next_target="$remaining"
-          if [ "$next_target" -gt 5 ]; then
-            next_target=5
-          fi
-
-          payload="$(printf '{\"ref\":\"main\",\"inputs\":{\"target_completions\":\"%s\"}}' "$next_target")"
-          status="$(curl -sS -o /tmp/caleprocure-dispatch-response -w '%{http_code}' \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/acquire-caleprocure-package-batch.yml/dispatches" \
-            -d "$payload")"
-
-          if [ "$status" != "204" ]; then
-            cat /tmp/caleprocure-dispatch-response || true
-            echo "Continuation dispatch failed with HTTP ${status}."
-            exit 1
-          fi
-
-          echo "Queued next Cal eProcure batch for ${next_target} completion(s); ${remaining} eligible contracts remain."
-
-# Concurrency generation v3 serializes the production continuation chain.
+# Qualification phase: one contract per run. Automatic continuation is intentionally disabled
+# until runtime, document count, package bytes, persistence, and reconciliation are measured.
